@@ -1,169 +1,250 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-const careers = [
-  {
-    title: "Software Developer",
-    description: "Build applications, APIs and software systems.",
-    skills: ["Programming", "DSA", "Git", "Databases"],
-  },
-  {
-    title: "Data Scientist",
-    description: "Analyze data and build predictive models.",
-    skills: ["Python", "Statistics", "Machine Learning", "SQL"],
-  },
-  {
-    title: "AI/ML Engineer",
-    description: "Build and deploy intelligent machine learning systems.",
-    skills: ["Python", "ML", "Deep Learning", "MLOps"],
-  },
-  {
-    title: "Data Analyst",
-    description: "Turn data into useful insights for decision making.",
-    skills: ["SQL", "Excel", "Python", "Visualization"],
-  },
-  {
-    title: "Cybersecurity Analyst",
-    description: "Monitor, investigate and respond to security threats.",
-    skills: ["Networking", "Linux", "SIEM", "Threat Detection"],
-  },
-  {
-    title: "Cloud Engineer",
-    description: "Design, deploy and manage cloud infrastructure.",
-    skills: ["Linux", "Networking", "AWS", "Cloud Security"],
-  },
-  {
-    title: "DevOps Engineer",
-    description: "Automate software development and infrastructure workflows.",
-    skills: ["Linux", "Git", "Docker", "CI/CD"],
-  },
-  {
-    title: "Network Engineer",
-    description: "Design, configure and maintain computer networks.",
-    skills: ["TCP/IP", "Routing", "Switching", "Security"],
-  },
-  {
-    title: "Data Engineer",
-    description: "Build reliable data pipelines and data platforms.",
-    skills: ["Python", "SQL", "ETL", "Cloud"],
-  },
-  {
-    title: "UI/UX Designer",
-    description: "Design intuitive and engaging digital experiences.",
-    skills: ["UX Research", "Wireframing", "Figma", "Design Systems"],
-  },
-];
+type CareerRole = {
+  id: string;
+  name: string;
+  description: string | null;
+};
 
 export default function CareerPage() {
-  const [selectedCareer, setSelectedCareer] = useState("");
   const router = useRouter();
+  const supabase = createClient();
 
-  const handleContinue = () => {
-    if (!selectedCareer) return;
+  const [careers, setCareers] = useState<CareerRole[]>([]);
+  const [selectedCareer, setSelectedCareer] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-    router.push(
-      `/assessment?role=${encodeURIComponent(selectedCareer)}`
-    );
-  };
+  useEffect(() => {
+    async function loadCareers() {
+      setLoading(true);
+      setError("");
+
+      const { data, error } = await supabase
+        .from("career_roles")
+        .select("id, name, description")
+        .order("name");
+
+      if (error) {
+        console.error("Career loading error:", error);
+        setError("Unable to load career roles.");
+        setLoading(false);
+        return;
+      }
+
+      setCareers(data ?? []);
+      setLoading(false);
+    }
+
+    loadCareers();
+  }, []);
+
+  async function handleContinue() {
+    if (!selectedCareer) {
+      setError("Please select a career before continuing.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      // 1. Check authenticated user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error(
+          "You must be logged in before selecting a career."
+        );
+      }
+
+      // 2. Find the selected career
+      const selectedRole = careers.find(
+        (career) => career.name === selectedCareer
+      );
+
+      if (!selectedRole) {
+        throw new Error(
+          "Unable to find the selected career."
+        );
+      }
+
+      // 3. Save the career to the user's profile
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          target_role_id: Number(selectedRole.id),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+
+      if (profileError) {
+        console.error(
+          "Profile update error:",
+          profileError
+        );
+
+        throw new Error(
+          "Unable to save your career selection."
+        );
+      }
+
+      // 4. Store the selected career locally for the next page
+      sessionStorage.setItem(
+        "selected_career",
+        selectedRole.name
+      );
+
+      sessionStorage.setItem(
+        "selected_career_id",
+        selectedRole.id
+      );
+
+      // 5. Continue to assessment
+      router.push(
+        `/assessment?role=${encodeURIComponent(
+          selectedRole.name
+        )}`
+      );
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while saving your career."
+      );
+
+      setSaving(false);
+    }
+  }
 
   return (
-    <main className="min-h-screen bg-[#f8f9fc] px-6 py-10 sm:px-10">
-      <div className="mx-auto max-w-6xl">
-
-        <Link
-          href="/"
-          className="text-sm font-medium text-gray-500 hover:text-indigo-600"
-        >
-          ← Back to Dashboard
-        </Link>
-
-        <div className="mt-8 max-w-2xl">
-          <p className="text-sm font-medium text-indigo-600">
-            Step 1 of your CareerPath
+    <main className="min-h-screen bg-[#f8f9fc] px-6 py-10">
+      <div className="mx-auto max-w-5xl">
+        {/* Header */}
+        <div className="mb-10">
+          <p className="mb-2 text-sm font-semibold text-indigo-600">
+            CareerPath
           </p>
 
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-            What career do you want to pursue?
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            Choose your target career
           </h1>
 
-          <p className="mt-3 text-gray-500">
-            Choose a target role and CareerPath will build your personalized
-            skills, learning and project roadmap.
+          <p className="mt-2 max-w-2xl text-gray-500">
+            Select the career you want to prepare for. We’ll use it
+            to identify the skills you need and create your
+            personalized roadmap.
           </p>
         </div>
 
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {careers.map((career) => {
-            const selected = selectedCareer === career.title;
+        {/* Loading */}
+        {loading && (
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+            <p className="text-sm text-gray-500">
+              Loading career roles...
+            </p>
+          </div>
+        )}
 
-            return (
+        {/* Error */}
+        {!loading && error && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-6">
+            <p className="font-semibold text-red-700">
+              {error}
+            </p>
+
+            <p className="mt-1 text-sm text-red-600">
+              Please try again.
+            </p>
+          </div>
+        )}
+
+        {/* Career Cards */}
+        {!loading && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {careers.map((career) => {
+                const isSelected =
+                  selectedCareer === career.name;
+
+                return (
+                  <button
+                    key={career.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCareer(career.name);
+                      setError("");
+                    }}
+                    className={`rounded-2xl border p-5 text-left transition ${
+                      isSelected
+                        ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                        : "border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h2
+                          className={`font-semibold ${
+                            isSelected
+                              ? "text-indigo-700"
+                              : "text-gray-900"
+                          }`}
+                        >
+                          {career.name}
+                        </h2>
+
+                        <p className="mt-2 text-sm leading-6 text-gray-500">
+                          {career.description ||
+                            "Build the skills and experience required for this career."}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                          isSelected
+                            ? "border-indigo-600 bg-indigo-600"
+                            : "border-gray-300 bg-white"
+                        }`}
+                      >
+                        {isSelected && (
+                          <div className="h-2 w-2 rounded-full bg-white" />
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Continue */}
+            <div className="mt-8 flex justify-end">
               <button
-                key={career.title}
-                onClick={() => setSelectedCareer(career.title)}
-                className={`rounded-2xl border bg-white p-6 text-left transition ${
-                  selected
-                    ? "border-indigo-500 ring-2 ring-indigo-100"
-                    : "border-gray-200 hover:border-indigo-200 hover:shadow-md"
+                type="button"
+                onClick={handleContinue}
+                disabled={!selectedCareer || saving}
+                className={`rounded-xl px-6 py-3 text-sm font-semibold transition ${
+                  selectedCareer && !saving
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "cursor-not-allowed bg-gray-200 text-gray-400"
                 }`}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-lg font-semibold text-indigo-600">
-                    {career.title.charAt(0)}
-                  </div>
-
-                  {selected && (
-                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
-                      Selected
-                    </span>
-                  )}
-                </div>
-
-                <h2 className="mt-5 text-lg font-semibold text-gray-900">
-                  {career.title}
-                </h2>
-
-                <p className="mt-2 text-sm leading-6 text-gray-500">
-                  {career.description}
-                </p>
-
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {career.skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="rounded-full bg-gray-50 px-2.5 py-1 text-xs text-gray-600"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
+                {saving
+                  ? "Saving..."
+                  : "Continue to Skill Assessment →"}
               </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-10 flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            {selectedCareer
-              ? `Selected: ${selectedCareer}`
-              : "Select a career to continue"}
-          </p>
-
-          <button
-            disabled={!selectedCareer}
-            onClick={handleContinue}
-            className={`rounded-xl px-6 py-3 text-sm font-medium transition ${
-              selectedCareer
-                ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                : "cursor-not-allowed bg-gray-200 text-gray-400"
-            }`}
-          >
-            Continue →
-          </button>
-        </div>
-
+            </div>
+          </>
+        )}
       </div>
     </main>
   );

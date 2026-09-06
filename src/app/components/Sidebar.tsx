@@ -8,6 +8,7 @@ const navigation = [
   { name: "Dashboard", href: "/" },
   { name: "Roadmap", href: "/roadmap" },
   { name: "Skills", href: "/skills" },
+  {name: "Job Readiness", href: "/job-readiness"},
   { name: "Learning", href: "/learning" },
   { name: "Projects", href: "/projects" },
   { name: "Certifications", href: "/certifications" },
@@ -80,6 +81,7 @@ export default function Sidebar() {
             );
           })}
         </nav>
+        
 
         {/* Bottom Navigation */}
         <div className="border-t border-gray-100 pt-4">
@@ -106,8 +108,11 @@ export default function Sidebar() {
               </Link>
             );
           })}
+          
         </div>
       </aside>
     </>
+    
   );
+  
 }
