@@ -182,9 +182,9 @@ export default async function Dashboard() {
     assessmentScore = Math.round(
       Number(
         latestAssessment.score ??
-          latestAssessment.percentage ??
-          latestAssessment.total_score ??
-          0
+        latestAssessment.percentage ??
+        latestAssessment.total_score ??
+        0
       )
     );
   }
@@ -241,10 +241,10 @@ export default async function Dashboard() {
 
       const currentLevel = Number(
         item.current_level ??
-          item.current_score ??
-          item.score ??
-          item.proficiency ??
-          0
+        item.current_score ??
+        item.score ??
+        item.proficiency ??
+        0
       );
 
       // ----------------------------------------------
@@ -253,8 +253,8 @@ export default async function Dashboard() {
 
       const requiredLevel = Number(
         item.required_level ??
-          item.target_level ??
-          100
+        item.target_level ??
+        100
       );
 
       let progress = 0;
@@ -314,15 +314,15 @@ export default async function Dashboard() {
   const strongestSkill =
     hasSkillData
       ? skills.reduce(
-          (
-            best: Skill,
-            current: Skill
-          ) =>
-            current.progress >
+        (
+          best: Skill,
+          current: Skill
+        ) =>
+          current.progress >
             best.progress
-              ? current
-              : best
-        )
+            ? current
+            : best
+      )
       : null;
 
   // ==================================================
@@ -332,15 +332,15 @@ export default async function Dashboard() {
   const biggestGap =
     hasSkillData
       ? skills.reduce(
-          (
-            worst: Skill,
-            current: Skill
-          ) =>
-            current.progress <
+        (
+          worst: Skill,
+          current: Skill
+        ) =>
+          current.progress <
             worst.progress
-              ? current
-              : worst
-        )
+            ? current
+            : worst
+      )
       : null;
 
   // ==================================================
@@ -350,15 +350,15 @@ export default async function Dashboard() {
   const skillAverage =
     hasSkillData
       ? Math.round(
-          skills.reduce(
-            (
-              total: number,
-              skill: Skill
-            ) =>
-              total + skill.progress,
-            0
-          ) / skills.length
-        )
+        skills.reduce(
+          (
+            total: number,
+            skill: Skill
+          ) =>
+            total + skill.progress,
+          0
+        ) / skills.length
+      )
       : 0;
 
   // ==================================================
@@ -386,9 +386,9 @@ export default async function Dashboard() {
       .map((item: ProgressRow) =>
         Number(
           item.progress ??
-            item.progress_percentage ??
-            item.completion_percentage ??
-            0
+          item.progress_percentage ??
+          item.completion_percentage ??
+          0
         )
       )
       .filter(
@@ -440,9 +440,9 @@ export default async function Dashboard() {
       .map((item: ProgressRow) =>
         Number(
           item.progress ??
-            item.progress_percentage ??
-            item.completion_percentage ??
-            0
+          item.progress_percentage ??
+          item.completion_percentage ??
+          0
         )
       )
       .filter(
@@ -494,8 +494,8 @@ export default async function Dashboard() {
   if (hasRealProgress) {
     jobReadiness = Math.round(
       skillAverage * 0.5 +
-        learningProgressAverage * 0.25 +
-        projectProgressAverage * 0.25
+      learningProgressAverage * 0.25 +
+      projectProgressAverage * 0.25
     );
   } else {
     jobReadiness = assessmentScore;
@@ -664,7 +664,7 @@ export default async function Dashboard() {
             ((jobReadiness -
               phaseStart) /
               20) *
-              100
+            100
           );
         }
 
@@ -737,10 +737,10 @@ export default async function Dashboard() {
   const experienceLevel =
     profile?.experience_level
       ? profile.experience_level
-          .replace(/_/g, " ")
-          .replace(/\b\w/g, (letter: string) =>
-            letter.toUpperCase()
-          )
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (letter: string) =>
+          letter.toUpperCase()
+        )
       : "Student";
 
   // ==================================================
@@ -916,9 +916,9 @@ export default async function Dashboard() {
 
             <div className="mt-6 space-y-3">
               {tasks.map(
-                (task: Task) => (
+                (task: Task, index: number) => (
                   <div
-                    key={task.title}
+                    key={`${task.title}-${index}`}
                     className="flex items-center gap-4 rounded-xl border border-gray-100 p-4 transition hover:border-indigo-100 hover:bg-gray-50"
                   >
                     <input
@@ -931,11 +931,10 @@ export default async function Dashboard() {
 
                     <div className="min-w-0 flex-1">
                       <p
-                        className={`font-medium ${
-                          task.completed
+                        className={`font-medium ${task.completed
                             ? "text-gray-400 line-through"
                             : "text-gray-900"
-                        }`}
+                          }`}
                       >
                         {task.title}
                       </p>
@@ -947,15 +946,14 @@ export default async function Dashboard() {
                     </div>
 
                     <span
-                      className={`hidden rounded-full px-3 py-1 text-xs font-medium sm:inline-flex ${
-                        task.type ===
-                        "Learning"
+                      className={`hidden rounded-full px-3 py-1 text-xs font-medium sm:inline-flex ${task.type ===
+                          "Learning"
                           ? "bg-blue-50 text-blue-700"
                           : task.type ===
                             "Practice"
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-purple-50 text-purple-700"
-                      }`}
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-purple-50 text-purple-700"
+                        }`}
                     >
                       {task.type}
                     </span>
@@ -978,7 +976,7 @@ export default async function Dashboard() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-lg">
               →
             </div>
-            
+
 
             <p className="mt-5 text-sm font-medium text-indigo-600">
               Recommended Next Step
@@ -1011,40 +1009,40 @@ export default async function Dashboard() {
           </div>
         </section>
         <Link
-  href="/job-readiness"
-  className="group block rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
->
-  <div className="flex items-center justify-between">
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-        Career Progress
-      </p>
+          href="/job-readiness"
+          className="group block rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
+                Career Progress
+              </p>
 
-      <h2 className="mt-2 text-xl font-bold text-gray-900">
-        Job Readiness
-      </h2>
+              <h2 className="mt-2 text-xl font-bold text-gray-900">
+                Job Readiness
+              </h2>
 
-      <p className="mt-2 max-w-lg text-sm leading-6 text-gray-500">
-        Check how prepared you are for your target role and see what you
-        need to improve next.
-      </p>
-    </div>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-gray-500">
+                Check how prepared you are for your target role and see what you
+                need to improve next.
+              </p>
+            </div>
 
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-lg text-indigo-600 transition group-hover:bg-indigo-100">
-      →
-    </div>
-  </div>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-lg text-indigo-600 transition group-hover:bg-indigo-100">
+              →
+            </div>
+          </div>
 
-  <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
-    <span className="text-sm font-semibold text-gray-700">
-      View Job Readiness
-    </span>
+          <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
+            <span className="text-sm font-semibold text-gray-700">
+              View Job Readiness
+            </span>
 
-    <span className="text-sm font-semibold text-indigo-600">
-      Check Now →
-    </span>
-  </div>
-</Link>
+            <span className="text-sm font-semibold text-indigo-600">
+              Check Now →
+            </span>
+          </div>
+        </Link>
 
         {/* ==================================================
             LOWER CONTENT
@@ -1092,15 +1090,14 @@ export default async function Dashboard() {
 
                     <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                       <div
-                        className={`h-full rounded-full transition-all ${
-                          skill.progress >=
-                          80
+                        className={`h-full rounded-full transition-all ${skill.progress >=
+                            80
                             ? "bg-green-500"
                             : skill.progress >=
                               60
-                            ? "bg-blue-500"
-                            : "bg-amber-500"
-                        }`}
+                              ? "bg-blue-500"
+                              : "bg-amber-500"
+                          }`}
                         style={{
                           width: `${skill.progress}%`,
                         }}
@@ -1157,27 +1154,26 @@ export default async function Dashboard() {
 
                     <div className="flex flex-col items-center">
                       <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                          phase.progress ===
-                          100
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${phase.progress ===
+                            100
                             ? "bg-green-100 text-green-700"
                             : phase.progress >
                               0
-                            ? "bg-indigo-100 text-indigo-700"
-                            : "bg-gray-100 text-gray-400"
-                        }`}
+                              ? "bg-indigo-100 text-indigo-700"
+                              : "bg-gray-100 text-gray-400"
+                          }`}
                       >
                         {phase.progress ===
-                        100
+                          100
                           ? "✓"
                           : index + 1}
                       </div>
 
                       {index !==
                         roadmap.length -
-                          1 && (
-                        <div className="mt-2 h-full min-h-6 w-px bg-gray-200" />
-                      )}
+                        1 && (
+                          <div className="mt-2 h-full min-h-6 w-px bg-gray-200" />
+                        )}
                     </div>
 
                     {/* PHASE */}
@@ -1195,15 +1191,14 @@ export default async function Dashboard() {
 
                       <div className="mt-2 h-1.5 rounded-full bg-gray-100">
                         <div
-                          className={`h-full rounded-full transition-all ${
-                            phase.progress ===
-                            100
+                          className={`h-full rounded-full transition-all ${phase.progress ===
+                              100
                               ? "bg-green-500"
                               : phase.progress >
                                 0
-                              ? "bg-indigo-500"
-                              : "bg-gray-200"
-                          }`}
+                                ? "bg-indigo-500"
+                                : "bg-gray-200"
+                            }`}
                           style={{
                             width: `${phase.progress}%`,
                           }}

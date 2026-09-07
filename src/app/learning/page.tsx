@@ -2,52 +2,48 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  PlayCircle,
+  Target,
+} from "lucide-react";
 
-type SkillGap = {
+type LearningResource = {
+  id: number;
+  name: string;
+  provider: string | null;
+  difficulty: string | null;
+  estimated_hours: number | null;
+  description: string | null;
+  resource_type: string | null;
+  url: string | null;
   skill_id: number;
   skill_name: string;
   skill_score: number;
   required_level: number;
-  priority: string;
   skill_gap: number;
   status: string;
+  priority: string | null;
 };
 
-type LearningResource = {
-  id: number;
-  skill_id: number;
-  name: string;
-  provider: string;
-  difficulty: "Basic" | "Intermediate" | "Advanced";
-  estimated_hours: number | null;
-  description: string | null;
-  resource_type:
-    | "Documentation"
-    | "Course"
-    | "Video"
-    | "Practice";
-  url: string | null;
-};
-
-type CareerRole = {
-  id: number;
-  name: string;
+type LearningProgress = {
+  learning_resource_id: number;
+  progress: number;
+  completed: boolean;
 };
 
 export default function LearningPage() {
   const supabase = createClient();
 
-  const [role, setRole] = useState<CareerRole | null>(null);
-  const [skillGaps, setSkillGaps] = useState<SkillGap[]>([]);
-  const [resources, setResources] = useState<LearningResource[]>(
-    []
-  );
-
-  const [selectedSkill, setSelectedSkill] = useState<
-    number | null
-  >(null);
-
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [progress, setProgress] = useState<
+    Record<number, LearningProgress>
+  >({});
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -60,959 +56,749 @@ export default function LearningPage() {
       setError("");
 
       // =====================================================
-      // STEP 1 — AUTHENTICATION
+      // 1. GET CURRENT USER
       // =====================================================
-
-      console.log(
-        "STEP 1: Checking authentication..."
-      );
 
       const {
         data: { user },
-        error: authError,
+        error: userError,
       } = await supabase.auth.getUser();
 
-      if (authError) {
-        console.error(
-          "AUTH ERROR:",
-          authError
-        );
-
-        throw authError;
+      if (userError) {
+        throw userError;
       }
 
       if (!user) {
-        throw new Error(
-          "No authenticated user found. Please login again."
+        setError(
+          "Please login to view your learning roadmap."
         );
-      }
-
-      console.log(
-        "STEP 1 OK — User:",
-        user.id
-      );
-
-      // =====================================================
-      // STEP 2 — PROFILE
-      // =====================================================
-
-      console.log(
-        "STEP 2: Loading profile..."
-      );
-
-      const {
-        data: profile,
-        error: profileError,
-      } = await supabase
-        .from("profiles")
-        .select("target_role_id")
-        .eq("id", user.id)
-        .single();
-
-      if (profileError) {
-        console.error(
-          "PROFILE ERROR:",
-          profileError
-        );
-
-        throw profileError;
-      }
-
-      if (!profile) {
-        throw new Error(
-          "Profile not found for this user."
-        );
-      }
-
-      if (!profile.target_role_id) {
-        throw new Error(
-          "Your profile does not have a target career selected."
-        );
-      }
-
-      console.log(
-        "STEP 2 OK — target_role_id:",
-        profile.target_role_id
-      );
-
-      // =====================================================
-      // STEP 3 — CAREER ROLE
-      // =====================================================
-
-      console.log(
-        "STEP 3: Loading career role..."
-      );
-
-      const {
-        data: roleData,
-        error: roleError,
-      } = await supabase
-        .from("career_roles")
-        .select("id, name")
-        .eq("id", profile.target_role_id)
-        .single();
-
-      if (roleError) {
-        console.error(
-          "ROLE ERROR:",
-          roleError
-        );
-
-        throw roleError;
-      }
-
-      if (!roleData) {
-        throw new Error(
-          "Selected career role was not found."
-        );
-      }
-
-      setRole(roleData);
-
-      console.log(
-        "STEP 3 OK — Role:",
-        roleData
-      );
-
-      // =====================================================
-      // STEP 4 — LATEST COMPLETED ASSESSMENT
-      // =====================================================
-
-      console.log(
-        "STEP 4: Loading latest assessment..."
-      );
-
-      const {
-        data: attempt,
-        error: attemptError,
-      } = await supabase
-        .from("assessment_attempts")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("role_id", profile.target_role_id)
-        .not("completed_at", "is", null)
-        .order("completed_at", {
-          ascending: false,
-        })
-        .limit(1)
-        .maybeSingle();
-
-      if (attemptError) {
-        console.error(
-          "ASSESSMENT ATTEMPT ERROR:",
-          attemptError
-        );
-
-        throw attemptError;
-      }
-
-      if (!attempt) {
-        console.log(
-          "STEP 4 — No completed assessment found."
-        );
-
-        setSkillGaps([]);
-        setResources([]);
         return;
       }
 
-      console.log(
-        "STEP 4 OK — Assessment attempt:",
-        attempt.id
-      );
-
       // =====================================================
-      // STEP 5 — USER SKILL GAPS
+      // 2. GET LATEST SKILL GAPS
       // =====================================================
-
-      console.log(
-        "STEP 5: Loading skill gaps..."
-      );
 
       const {
         data: gaps,
         error: gapsError,
       } = await supabase
         .from("user_skill_gaps")
-        .select(
-          `
-            skill_id,
-            skill_name,
-            skill_score,
-            required_level,
-            priority,
-            skill_gap,
-            status
-          `
-        )
-        .eq("attempt_id", attempt.id)
+        .select(`
+          skill_id,
+          skill_name,
+          skill_score,
+          required_level,
+          skill_gap,
+          status,
+          priority,
+          attempt_id
+        `)
+        .eq("user_id", user.id)
         .order("skill_gap", {
           ascending: false,
+          nullsFirst: false,
         });
 
       if (gapsError) {
-        console.error(
-          "SKILL GAP ERROR:",
-          gapsError
-        );
-
         throw gapsError;
       }
 
-      const loadedGaps =
-        (gaps ?? []) as SkillGap[];
-
-      console.log(
-        "STEP 5 OK — Skill gaps:",
-        loadedGaps
-      );
-
-      setSkillGaps(loadedGaps);
-
-      // Select biggest skill gap by default
-      if (loadedGaps.length > 0) {
-        setSelectedSkill(
-          loadedGaps[0].skill_id
-        );
-      }
-
       // =====================================================
-      // STEP 6 — LEARNING RESOURCES
+      // 3. GET LEARNING RESOURCES
       // =====================================================
-
-      const skillIds = loadedGaps.map(
-        (skill) => skill.skill_id
-      );
-
-      console.log(
-        "STEP 6 — Skill IDs:",
-        skillIds
-      );
-
-      if (skillIds.length === 0) {
-        console.log(
-          "STEP 6 — No skills available."
-        );
-
-        setResources([]);
-        return;
-      }
-
-      console.log(
-        "STEP 6: Loading learning resources..."
-      );
 
       const {
-        data: resourceData,
-        error: resourceError,
+        data: learningData,
+        error: learningError,
       } = await supabase
         .from("learning_resources")
-        .select("*")
-        .in("skill_id", skillIds)
-        .order("difficulty", {
-          ascending: true,
-        });
+        .select(`
+          id,
+          name,
+          provider,
+          difficulty,
+          estimated_hours,
+          description,
+          resource_type,
+          url,
+          skill_id
+        `);
 
-      if (resourceError) {
-        console.error(
-          "LEARNING RESOURCE ERROR:",
-          resourceError
-        );
-
-        throw resourceError;
+      if (learningError) {
+        throw learningError;
       }
 
-      const loadedResources =
-        (resourceData ?? []) as LearningResource[];
+      // =====================================================
+      // 4. CREATE SKILL GAP LOOKUP
+      // =====================================================
 
-      console.log(
-        "STEP 6 OK — Resources:",
-        loadedResources
-      );
+      const gapMap = new Map<number, any>();
 
-      setResources(loadedResources);
+      for (const gap of gaps ?? []) {
+        if (!gapMap.has(gap.skill_id)) {
+          gapMap.set(gap.skill_id, gap);
+        }
+      }
 
-      console.log(
-        "======================================"
-      );
-      console.log(
-        "LEARNING DATA LOADED SUCCESSFULLY"
-      );
-      console.log(
-        "======================================"
-      );
+      // =====================================================
+      // 5. COMBINE LEARNING RESOURCES + SKILL GAPS
+      // =====================================================
+
+      const combined: LearningResource[] = [];
+
+      for (const resource of learningData ?? []) {
+        const gap = gapMap.get(resource.skill_id);
+
+        if (!gap) {
+          continue;
+        }
+
+        // Don't recommend learning resources for
+        // skills that have not been assessed yet.
+        if (gap.status === "Not Assessed") {
+          continue;
+        }
+
+        combined.push({
+          ...resource,
+
+          skill_name: gap.skill_name,
+
+          skill_score: Number(
+            gap.skill_score ?? 0
+          ),
+
+          required_level: Number(
+            gap.required_level ?? 0
+          ),
+
+          skill_gap: Number(
+            gap.skill_gap ?? 0
+          ),
+
+          status:
+            gap.status ??
+            "Needs Improvement",
+
+          priority:
+            gap.priority ?? null,
+        });
+      }
+
+      // =====================================================
+      // 6. BIGGEST GAPS FIRST
+      // =====================================================
+
+      combined.sort((a, b) => {
+        if (b.skill_gap !== a.skill_gap) {
+          return b.skill_gap - a.skill_gap;
+        }
+
+        return a.name.localeCompare(b.name);
+      });
+
+      // =====================================================
+      // 7. GET LEARNING PROGRESS
+      // =====================================================
+
+      const {
+        data: progressData,
+        error: progressError,
+      } = await supabase
+        .from("user_learning_progress")
+        .select(`
+          learning_resource_id,
+          progress,
+          completed
+        `)
+        .eq("user_id", user.id);
+
+      if (progressError) {
+        throw progressError;
+      }
+
+      const progressMap: Record<
+        number,
+        LearningProgress
+      > = {};
+
+      for (const item of progressData ?? []) {
+        progressMap[item.learning_resource_id] = {
+          learning_resource_id:
+            item.learning_resource_id,
+
+          progress: Number(
+            item.progress ?? 0
+          ),
+
+          completed: Boolean(
+            item.completed
+          ),
+        };
+      }
+
+      setResources(combined);
+      setProgress(progressMap);
     } catch (err: any) {
       console.error(
-        "======================================"
-      );
-      console.error(
-        "LEARNING PAGE ERROR"
-      );
-      console.error(
-        "======================================"
-      );
-
-      console.error(
-        "message:",
-        err?.message
-      );
-
-      console.error(
-        "details:",
-        err?.details
-      );
-
-      console.error(
-        "hint:",
-        err?.hint
-      );
-
-      console.error(
-        "code:",
-        err?.code
-      );
-
-      console.error(
-        "full error:",
-        JSON.stringify(
-          err,
-          null,
-          2
-        )
-      );
-
-      console.error(
-        "======================================"
+        "LEARNING DATA ERROR:",
+        err
       );
 
       setError(
         err?.message ||
-          "Unable to load your personalized learning plan."
+        "Unable to load learning resources."
       );
     } finally {
       setLoading(false);
     }
   }
 
-  // =========================================================
-  // SELECTED SKILL
-  // =========================================================
+  // ===========================================================
+  // UPDATE LEARNING PROGRESS
+  // ===========================================================
 
-  const selectedSkillData = useMemo(() => {
-    return skillGaps.find(
-      (skill) =>
-        skill.skill_id === selectedSkill
-    );
-  }, [
-    skillGaps,
-    selectedSkill,
-  ]);
+  async function updateProgress(
+    resource: LearningResource,
+    value: number
+  ) {
+    try {
+      setUpdating(resource.id);
+      setError("");
 
-  // =========================================================
-  // SELECTED RESOURCES
-  // =========================================================
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-  const selectedResources = useMemo(() => {
-    if (!selectedSkill) {
-      return [];
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        setError("Please login first.");
+        return;
+      }
+
+      const progressValue = Math.max(
+        0,
+        Math.min(100, value)
+      );
+
+      const completed =
+        progressValue >= 100;
+
+      const existing =
+        progress[resource.id];
+
+      const payload = {
+        user_id: user.id,
+
+        learning_resource_id:
+          resource.id,
+
+        progress: progressValue,
+
+        completed,
+
+        started_at:
+          progressValue > 0
+            ? existing
+              ? undefined
+              : new Date().toISOString()
+            : null,
+
+        completed_at: completed
+          ? new Date().toISOString()
+          : null,
+
+        updated_at:
+          new Date().toISOString(),
+      };
+
+      const {
+        error: saveError,
+      } = await supabase
+        .from("user_learning_progress")
+        .upsert(payload, {
+          onConflict:
+            "user_id,learning_resource_id",
+        });
+
+      if (saveError) {
+        throw saveError;
+      }
+
+      setProgress((current) => ({
+        ...current,
+
+        [resource.id]: {
+          learning_resource_id:
+            resource.id,
+
+          progress: progressValue,
+
+          completed,
+        },
+      }));
+    } catch (err: any) {
+      console.error(
+        "PROGRESS UPDATE ERROR:",
+        err
+      );
+
+      setError(
+        err?.message ||
+        "Unable to update progress."
+      );
+    } finally {
+      setUpdating(null);
     }
+  }
 
-    return resources.filter(
-      (resource) =>
-        resource.skill_id === selectedSkill
-    );
-  }, [
-    resources,
-    selectedSkill,
-  ]);
+  // ===========================================================
+  // COMPLETED COUNT
+  // ===========================================================
 
-  // =========================================================
-  // OVERALL SCORE
-  // =========================================================
+  const completedCount = useMemo(() => {
+    return Object.values(progress).filter(
+      (item) => item.completed
+    ).length;
+  }, [progress]);
 
-  const overallScore = useMemo(() => {
-    if (skillGaps.length === 0) {
-      return 0;
-    }
+  // ===========================================================
+  // OVERALL LEARNING PROGRESS
+  // ===========================================================
 
-    const total = skillGaps.reduce(
-      (sum, skill) =>
-        sum +
-        Number(skill.skill_score),
-      0
-    );
+  const overallLearningProgress =
+    useMemo(() => {
+      if (resources.length === 0) {
+        return 0;
+      }
 
-    return Math.round(
-      total / skillGaps.length
-    );
-  }, [skillGaps]);
+      const total = resources.reduce(
+        (sum, resource) => {
+          return (
+            sum +
+            (progress[resource.id]
+              ?.progress ?? 0)
+          );
+        },
+        0
+      );
 
-  // =========================================================
-  // LOADING SCREEN
-  // =========================================================
+      return Math.round(
+        total / resources.length
+      );
+    }, [resources, progress]);
+
+  // ===========================================================
+  // LOADING
+  // ===========================================================
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f8f9fc] px-6 py-10 lg:px-10">
-        <div className="mx-auto max-w-7xl">
-
+      <main className="min-h-screen bg-[#fafafa] p-8">
+        <div className="mx-auto max-w-6xl">
           <div className="animate-pulse space-y-6">
 
-            <div className="h-8 w-64 rounded-lg bg-gray-200" />
+            <div className="h-10 w-72 rounded-lg bg-gray-200" />
 
-            <div className="h-32 rounded-2xl bg-gray-200" />
+            <div className="h-5 w-96 rounded bg-gray-200" />
 
-            <div className="grid gap-5 lg:grid-cols-3">
-
+            <div className="grid gap-5 md:grid-cols-2">
               <div className="h-64 rounded-2xl bg-gray-200" />
-
-              <div className="h-64 rounded-2xl bg-gray-200 lg:col-span-2" />
-
+              <div className="h-64 rounded-2xl bg-gray-200" />
             </div>
 
           </div>
-
         </div>
       </main>
     );
   }
 
-  // =========================================================
-  // ERROR SCREEN
-  // =========================================================
-
-  if (error) {
-    return (
-      <main className="min-h-screen bg-[#f8f9fc] px-6 py-10 lg:px-10">
-
-        <div className="mx-auto max-w-4xl">
-
-          <div className="rounded-2xl border border-red-100 bg-white p-8 shadow-sm">
-
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-red-50 text-xl">
-              ⚠️
-            </div>
-
-            <h1 className="text-xl font-bold text-gray-900">
-              Learning Plan
-            </h1>
-
-            <p className="mt-3 text-sm leading-6 text-red-600">
-              {error}
-            </p>
-
-            <button
-              onClick={loadLearningData}
-              className="mt-6 rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
-            >
-              Try Again
-            </button>
-
-          </div>
-
-        </div>
-
-      </main>
-    );
-  }
-
-  // =========================================================
-  // MAIN PAGE
-  // =========================================================
+  // ===========================================================
+  // PAGE
+  // ===========================================================
 
   return (
-    <main className="min-h-screen bg-[#f8f9fc] px-6 py-8 lg:px-10">
+    <main className="min-h-screen bg-[#fafafa] p-6 md:p-8">
 
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-6xl space-y-8">
 
-        {/* ================================================= */}
         {/* HEADER */}
-        {/* ================================================= */}
 
-        <div className="mb-8">
+        <section>
+          <div className="flex items-center gap-3">
 
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100">
+              <BookOpen className="h-5 w-5 text-indigo-600" />
+            </div>
 
             <div>
 
-              <p className="mb-2 text-sm font-semibold text-indigo-600">
-                Personalized Learning
-              </p>
-
-              <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-                What to Learn
+              <h1 className="text-3xl font-semibold tracking-tight text-gray-900">
+                Learning
               </h1>
 
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
-                Your learning resources are selected based
-                on your assessment results and target career.
+              <p className="mt-1 text-sm text-gray-500">
+                Learn the skills you need to close your biggest gaps.
               </p>
 
             </div>
 
-            {role && (
-              <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+          </div>
+        </section>
 
-                <p className="text-xs font-medium text-gray-400">
-                  Target Career
-                </p>
+        {/* ERROR */}
 
-                <p className="mt-1 text-sm font-bold text-gray-900">
-                  {role.name}
-                </p>
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
-              </div>
-            )}
+        {/* PROGRESS SUMMARY */}
+
+        <section className="grid gap-4 md:grid-cols-3">
+
+          {/* OVERALL */}
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
+            <div className="flex items-center justify-between">
+
+              <span className="text-sm text-gray-500">
+                Overall Learning
+              </span>
+
+              <Target className="h-5 w-5 text-indigo-500" />
+
+            </div>
+
+            <div className="mt-3 text-3xl font-semibold text-gray-900">
+              {overallLearningProgress}%
+            </div>
+
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+
+              <div
+                className="h-full rounded-full bg-indigo-600 transition-all"
+                style={{
+                  width: `${overallLearningProgress}%`,
+                }}
+              />
+
+            </div>
 
           </div>
 
-        </div>
+          {/* RECOMMENDED */}
 
-        {/* ================================================= */}
-        {/* OVERVIEW CARDS */}
-        {/* ================================================= */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
 
-        <section className="mb-8 grid gap-5 md:grid-cols-3">
+            <div className="text-sm text-gray-500">
+              Recommended Resources
+            </div>
 
-          {/* Current Level */}
+            <div className="mt-3 text-3xl font-semibold text-gray-900">
+              {resources.length}
+            </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-
-            <p className="text-sm font-medium text-gray-500">
-              Current Skill Level
-            </p>
-
-            <p className="mt-3 text-3xl font-bold text-gray-900">
-              {overallScore}%
-            </p>
-
-            <p className="mt-2 text-xs text-gray-400">
-              Average assessment performance
+            <p className="mt-1 text-sm text-gray-500">
+              Based on your current skill gaps
             </p>
 
           </div>
 
-          {/* Skills To Improve */}
+          {/* COMPLETED */}
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
 
-            <p className="text-sm font-medium text-gray-500">
-              Skills to Improve
-            </p>
+            <div className="text-sm text-gray-500">
+              Completed
+            </div>
 
-            <p className="mt-3 text-3xl font-bold text-gray-900">
-              {
-                skillGaps.filter(
-                  (skill) =>
-                    skill.status !==
-                    "Strong"
-                ).length
-              }
-            </p>
+            <div className="mt-3 text-3xl font-semibold text-gray-900">
+              {completedCount}
+            </div>
 
-            <p className="mt-2 text-xs text-gray-400">
-              Based on your latest assessment
-            </p>
-
-          </div>
-
-          {/* Recommended */}
-
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-6">
-
-            <p className="text-sm font-semibold text-indigo-700">
-              Recommended Next
-            </p>
-
-            <p className="mt-3 text-xl font-bold text-gray-900">
-              {skillGaps[0]?.skill_name ??
-                "Complete your assessment"}
-            </p>
-
-            <p className="mt-2 text-xs leading-5 text-gray-600">
-              Focus on your largest current
-              skill gap first.
+            <p className="mt-1 text-sm text-gray-500">
+              Learning resources completed
             </p>
 
           </div>
 
         </section>
 
-        {/* ================================================= */}
-        {/* NO ASSESSMENT */}
-        {/* ================================================= */}
+        {/* EMPTY STATE */}
 
-        {skillGaps.length === 0 ? (
+        {resources.length === 0 && (
+          <section className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-sm">
+            <BookOpen className="mx-auto h-10 w-10 text-gray-400" />
 
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">
-              📚
-            </div>
-
-            <h2 className="mt-5 text-xl font-bold text-gray-900">
-              No learning plan yet
+            <h2 className="mt-4 text-lg font-semibold text-gray-900">
+              No learning recommendations yet
             </h2>
 
-            <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-gray-500">
+            <p className="mx-auto mt-2 max-w-lg text-sm text-gray-500">
               Complete your career assessment first.
-              CareerPath will then identify your skill
-              gaps and recommend learning resources.
+              CareerPath will use your skill gaps to
+              recommend what you should learn next.
             </p>
 
-          </div>
+          </section>
+        )}
 
-        ) : (
+        {/* LEARNING RESOURCES */}
 
-          /* ================================================= */
-          /* SKILLS + RESOURCES */
-          /* ================================================= */
+        <section className="space-y-5">
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          {resources.map((resource) => {
 
-            {/* ================================================= */}
-            {/* SKILL GAP SIDEBAR */}
-            {/* ================================================= */}
+            const currentProgress =
+              progress[resource.id]
+                ?.progress ?? 0;
 
-            <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            const completed =
+              progress[resource.id]
+                ?.completed ?? false;
 
-              <div className="mb-5">
+            return (
+              <article
+                key={resource.id}
+                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+              >
 
-                <h2 className="text-lg font-bold text-gray-900">
-                  Your Skill Gaps
-                </h2>
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
 
-                <p className="mt-1 text-xs text-gray-500">
-                  Select a skill to see recommended
-                  resources.
-                </p>
+                  {/* RESOURCE INFORMATION */}
 
-              </div>
+                  <div className="flex-1">
 
-              <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
 
-                {skillGaps.map(
-                  (skill) => {
+                      <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                        {resource.skill_name}
+                      </span>
 
-                    const active =
-                      selectedSkill ===
-                      skill.skill_id;
+                      {resource.status ===
+                        "Critical Gap" && (
+                          <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
+                            Critical Gap
+                          </span>
+                        )}
 
-                    return (
-                      <button
-                        key={
-                          skill.skill_id
-                        }
-                        onClick={() =>
-                          setSelectedSkill(
-                            skill.skill_id
-                          )
-                        }
-                        className={`w-full rounded-xl border p-4 text-left transition ${
-                          active
-                            ? "border-indigo-200 bg-indigo-50"
-                            : "border-gray-100 bg-gray-50 hover:border-gray-200 hover:bg-white"
-                        }`}
+                      {resource.status ===
+                        "Needs Improvement" && (
+                          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                            Needs Improvement
+                          </span>
+                        )}
+
+                      {resource.status ===
+                        "Good Progress" && (
+                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                            Good Progress
+                          </span>
+                        )}
+
+                      {resource.difficulty && (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                          {resource.difficulty}
+                        </span>
+                      )}
+
+                      {resource.priority && (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                          Priority {resource.priority}
+                        </span>
+                      )}
+
+                    </div>
+
+                    <h2 className="mt-3 text-xl font-semibold text-gray-900">
+                      {resource.name}
+                    </h2>
+
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
+                      {resource.description ||
+                        `Improve your ${resource.skill_name} skills through this learning resource.`}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-500">
+
+                      {resource.provider && (
+                        <span>
+                          Provider:{" "}
+                          <strong className="font-medium text-gray-700">
+                            {resource.provider}
+                          </strong>
+                        </span>
+                      )}
+
+                      {resource.estimated_hours && (
+                        <span className="flex items-center gap-1">
+                          <Clock3 className="h-4 w-4" />
+                          {resource.estimated_hours} hours
+                        </span>
+                      )}
+
+                      {resource.resource_type && (
+                        <span>
+                          {resource.resource_type}
+                        </span>
+                      )}
+
+                    </div>
+
+                    {/* SKILL GAP */}
+
+                    <div className="mt-5 max-w-xl">
+
+                      <div className="flex items-center justify-between text-xs">
+
+                        <span className="text-gray-500">
+                          Current skill level
+                        </span>
+
+                        <span className="font-medium text-gray-700">
+                          {resource.skill_score}%
+                          {" / "}
+                          {resource.required_level}%
+                        </span>
+
+                      </div>
+
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
+
+                        <div
+                          className="h-full rounded-full bg-indigo-500"
+                          style={{
+                            width: `${Math.min(
+                              resource.skill_score,
+                              100
+                            )}%`,
+                          }}
+                        />
+
+                      </div>
+
+                      {resource.skill_gap > 0 && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          {resource.skill_gap.toFixed(0)}
+                          {" points remaining to reach the required level."}
+                        </p>
+                      )}
+
+                    </div>
+
+                  </div>
+
+                  {/* ACTIONS */}
+
+                  <div className="flex flex-col gap-3 lg:w-56">
+
+                    {resource.url && (
+                      <a
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-700"
                       >
 
-                        {/* Skill Header */}
+                        <PlayCircle className="h-4 w-4" />
 
-                        <div className="flex items-center justify-between gap-3">
+                        Start Learning
 
-                          <span className="text-sm font-semibold text-gray-900">
-                            {skill.skill_name}
-                          </span>
+                        <ExternalLink className="h-3.5 w-3.5" />
 
-                          <span
-                            className={`rounded-full px-2 py-1 text-[10px] font-bold ${
-                              skill.status ===
-                              "Strong"
-                                ? "bg-green-100 text-green-700"
-                                : skill.status ===
-                                  "Good"
-                                ? "bg-blue-100 text-blue-700"
-                                : skill.status ===
-                                  "Needs Improvement"
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {skill.status}
-                          </span>
+                      </a>
+                    )}
 
-                        </div>
+                    {completed ? (
 
-                        {/* Score */}
+                      <div className="flex items-center justify-center gap-2 rounded-xl bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700">
 
-                        <div className="mt-3 flex items-center justify-between text-xs">
+                        <CheckCircle2 className="h-4 w-4" />
 
-                          <span className="text-gray-500">
-                            Current
-                          </span>
+                        Completed
 
-                          <span className="font-bold text-gray-800">
-                            {Math.round(
-                              Number(
-                                skill.skill_score
-                              )
-                            )}
-                            %
-                          </span>
+                      </div>
 
-                        </div>
+                    ) : (
 
-                        {/* Progress */}
+                      <button
+                        disabled={
+                          updating === resource.id
+                        }
+                        onClick={() =>
+                          updateProgress(
+                            resource,
+                            Math.min(
+                              currentProgress + 25,
+                              100
+                            )
+                          )
+                        }
+                        className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
 
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
-
-                          <div
-                            className="h-full rounded-full bg-indigo-500"
-                            style={{
-                              width: `${Math.min(
-                                Number(
-                                  skill.skill_score
-                                ),
-                                100
-                              )}%`,
-                            }}
-                          />
-
-                        </div>
-
-                        {/* Priority */}
-
-                        <div className="mt-3 flex items-center justify-between">
-
-                          <span className="text-[11px] text-gray-400">
-                            Priority
-                          </span>
-
-                          <span
-                            className={`text-[11px] font-semibold ${
-                              skill.priority
-                                ?.toLowerCase()
-                                .includes(
-                                  "high"
-                                )
-                                ? "text-red-600"
-                                : "text-gray-500"
-                            }`}
-                          >
-                            {skill.priority}
-                          </span>
-
-                        </div>
+                        {updating === resource.id
+                          ? "Saving..."
+                          : currentProgress === 0
+                            ? "Mark 25% Complete"
+                            : `Mark ${Math.min(
+                              currentProgress + 25,
+                              100
+                            )}% Complete`}
 
                       </button>
-                    );
-                  }
-                )}
 
-              </div>
-
-            </section>
-
-            {/* ================================================= */}
-            {/* LEARNING RESOURCES */}
-            {/* ================================================= */}
-
-            <section className="lg:col-span-2">
-
-              {/* Current Focus */}
-
-              {selectedSkillData && (
-
-                <div className="mb-5 rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm">
-
-                  <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-
-                    <div>
-
-                      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
-                        Current Focus
-                      </p>
-
-                      <h2 className="mt-2 text-2xl font-bold text-gray-900">
-                        {
-                          selectedSkillData.skill_name
-                        }
-                      </h2>
-
-                      <p className="mt-2 text-sm leading-6 text-gray-500">
-
-                        Your current score is{" "}
-
-                        <strong>
-                          {Math.round(
-                            Number(
-                              selectedSkillData.skill_score
-                            )
-                          )}
-                          %
-                        </strong>
-
-                        . The required level for
-                        your target career is{" "}
-
-                        <strong>
-                          {
-                            selectedSkillData.required_level
-                          }
-                          %
-                        </strong>
-                        .
-
-                      </p>
-
-                    </div>
-
-                    <div className="rounded-xl bg-gray-50 px-4 py-3">
-
-                      <p className="text-xs text-gray-400">
-                        Skill Gap
-                      </p>
-
-                      <p className="mt-1 text-lg font-bold text-gray-900">
-                        {Math.round(
-                          Number(
-                            selectedSkillData.skill_gap
-                          )
-                        )}
-                        %
-                      </p>
-
-                    </div>
+                    )}
 
                   </div>
 
                 </div>
-              )}
 
-              {/* Resource List */}
+                {/* LEARNING PROGRESS */}
 
-              <div className="space-y-4">
+                <div className="mt-6 border-t border-gray-100 pt-5">
 
-                {selectedResources.length === 0 ? (
+                  <div className="flex items-center justify-between text-sm">
 
-                  <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+                    <span className="font-medium text-gray-700">
+                      Learning Progress
+                    </span>
 
-                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gray-50 text-xl">
-                      📖
-                    </div>
-
-                    <p className="mt-4 text-sm text-gray-500">
-                      No learning resources have been
-                      added for this skill yet.
-                    </p>
+                    <span className="font-semibold text-indigo-600">
+                      {currentProgress}%
+                    </span>
 
                   </div>
 
-                ) : (
+                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-100">
 
-                  selectedResources.map(
-                    (resource) => (
+                    <div
+                      className="h-full rounded-full bg-indigo-600 transition-all duration-500"
+                      style={{
+                        width: `${currentProgress}%`,
+                      }}
+                    />
 
-                      <article
-                        key={
-                          resource.id
-                        }
-                        className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                      >
+                  </div>
 
-                        <div className="flex flex-col justify-between gap-5 md:flex-row">
+                </div>
 
-                          {/* Resource Information */}
+              </article>
+            );
+          })}
 
-                          <div className="flex-1">
-
-                            <div className="flex flex-wrap items-center gap-2">
-
-                              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
-                                {
-                                  resource.resource_type
-                                }
-                              </span>
-
-                              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
-                                {
-                                  resource.difficulty
-                                }
-                              </span>
-
-                            </div>
-
-                            <h3 className="mt-3 text-lg font-bold text-gray-900">
-                              {resource.name}
-                            </h3>
-
-                            <p className="mt-1 text-sm font-medium text-gray-500">
-                              {resource.provider}
-                            </p>
-
-                            {resource.description && (
-
-                              <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
-                                {
-                                  resource.description
-                                }
-                              </p>
-
-                            )}
-
-                            {resource.estimated_hours && (
-
-                              <p className="mt-4 text-xs font-medium text-gray-400">
-                                Estimated time:{" "}
-                                {
-                                  resource.estimated_hours
-                                }{" "}
-                                hours
-                              </p>
-
-                            )}
-
-                          </div>
-
-                          {/* Start Button */}
-
-                          <div className="flex items-center">
-
-                            {resource.url && (
-
-                              <a
-                                href={
-                                  resource.url
-                                }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
-                              >
-                                Start Learning →
-                              </a>
-
-                            )}
-
-                          </div>
-
-                        </div>
-
-                      </article>
-
-                    )
-                  )
-
-                )}
-
-              </div>
-
-            </section>
-
-          </div>
-
-        )}
+        </section>
 
       </div>
-
     </main>
   );
 }

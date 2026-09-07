@@ -7,19 +7,31 @@ import { useRouter } from "next/navigation";
 type SkillGap = {
   skill_id: number;
   skill_name: string;
-  skill_score: number;
+  skill_score: number | null;
   required_level: number;
-  priority: string;
-  skill_gap: number;
+  priority: string | null;
+  skill_gap: number | null;
   status: string;
+};
+
+type RoleSkill = {
+  skill_id: number;
+  required_level: number | null;
+  priority: string | null;
+};
+
+type SkillScore = {
+  skill_id: number;
+  skill_name: string | null;
+  skill_score: number | null;
 };
 
 export default function SkillsPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [skills, setSkills] = useState<SkillGap[]>([]);
   const [roleName, setRoleName] = useState("");
+  const [overallScore, setOverallScore] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -28,8 +40,13 @@ export default function SkillsPage() {
       setLoading(true);
       setError("");
 
+      const supabase = createClient();
+
       try {
-        // Get logged-in user
+        // =====================================================
+        // 1. GET CURRENT USER
+        // =====================================================
+
         const {
           data: { user },
           error: userError,
@@ -41,21 +58,44 @@ export default function SkillsPage() {
           );
         }
 
-        // Get user's latest assessment
-        const { data: attempt, error: attemptError } =
-          await supabase
-            .from("assessment_attempts")
-            .select("id, role_id, completed_at")
-            .eq("user_id", user.id)
-            .not("completed_at", "is", null)
-            .order("completed_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        // =====================================================
+        // 2. GET LATEST COMPLETED ASSESSMENT
+        // =====================================================
+
+        const {
+          data: attempt,
+          error: attemptError,
+        } = await supabase
+          .from("assessment_attempts")
+          .select(
+            `
+              id,
+              role_id,
+              score,
+              total_questions,
+              correct_answers,
+              completed_at
+            `
+          )
+          .eq("user_id", user.id)
+          .not("completed_at", "is", null)
+          .order("completed_at", {
+            ascending: false,
+          })
+          .order("id", {
+            ascending: false,
+          })
+          .limit(1)
+          .maybeSingle();
 
         if (attemptError) {
-          console.error(attemptError);
+          console.error(
+            "LATEST ASSESSMENT ERROR:",
+            attemptError
+          );
+
           throw new Error(
-            "Unable to load your assessment."
+            `Unable to load your assessment: ${attemptError.message}`
           );
         }
 
@@ -65,15 +105,45 @@ export default function SkillsPage() {
           );
         }
 
-        // Get role name
-        const { data: role, error: roleError } =
-          await supabase
-            .from("career_roles")
-            .select("name")
-            .eq("id", attempt.role_id)
-            .single();
+        console.log(
+          "Latest assessment:",
+          attempt
+        );
+
+        // =====================================================
+        // 3. OVERALL ASSESSMENT SCORE
+        // =====================================================
+
+        const assessmentScore = Number(
+          attempt.score ?? 0
+        );
+
+        setOverallScore(
+          Math.max(
+            0,
+            Math.min(100, assessmentScore)
+          )
+        );
+
+        // =====================================================
+        // 4. GET CAREER ROLE
+        // =====================================================
+
+        const {
+          data: role,
+          error: roleError,
+        } = await supabase
+          .from("career_roles")
+          .select("id, name")
+          .eq("id", attempt.role_id)
+          .maybeSingle();
 
         if (roleError || !role) {
+          console.error(
+            "ROLE ERROR:",
+            roleError
+          );
+
           throw new Error(
             "Unable to load your selected career."
           );
@@ -81,12 +151,17 @@ export default function SkillsPage() {
 
         setRoleName(role.name);
 
-        // Get skill gaps for this assessment
-        const { data: skillData, error: skillError } =
-          await supabase
-            .from("user_skill_gaps")
-            .select(
-              `
+        // =====================================================
+        // 5. FIRST TRY user_skill_gaps
+        // =====================================================
+
+        const {
+          data: existingGaps,
+          error: gapError,
+        } = await supabase
+          .from("user_skill_gaps")
+          .select(
+            `
               skill_id,
               skill_name,
               skill_score,
@@ -95,22 +170,307 @@ export default function SkillsPage() {
               skill_gap,
               status
             `
-            )
-            .eq("attempt_id", attempt.id)
-            .order("skill_gap", {
-              ascending: false,
-            });
+          )
+          .eq("user_id", user.id)
+          .eq("attempt_id", attempt.id)
+          .eq("role_id", attempt.role_id)
+          .order("skill_gap", {
+            ascending: false,
+            nullsFirst: false,
+          });
 
-        if (skillError) {
-          console.error(skillError);
-          throw new Error(
-            "Unable to load your skill analysis."
+        if (gapError) {
+          console.warn(
+            "user_skill_gaps query failed:",
+            gapError
           );
         }
 
-        setSkills(skillData ?? []);
+        // =====================================================
+        // 6. IF GAPS EXIST, USE THEM
+        // =====================================================
+
+        if (
+          existingGaps &&
+          existingGaps.length > 0
+        ) {
+          console.log(
+            "Using existing skill gaps:",
+            existingGaps
+          );
+
+          setSkills(
+            existingGaps.map((row) => ({
+              skill_id: Number(row.skill_id),
+              skill_name:
+                row.skill_name ??
+                "Unnamed skill",
+              skill_score:
+                row.skill_score === null
+                  ? null
+                  : Number(row.skill_score),
+              required_level:
+                Number(
+                  row.required_level ?? 0
+                ),
+              priority:
+                row.priority ?? null,
+              skill_gap:
+                row.skill_gap === null
+                  ? null
+                  : Number(row.skill_gap),
+              status:
+                row.status ??
+                "Not Assessed",
+            }))
+          );
+
+          setLoading(false);
+          return;
+        }
+
+        // =====================================================
+        // 7. FALLBACK:
+        // GET ROLE REQUIREMENTS
+        // =====================================================
+
+        console.log(
+          "No user_skill_gaps found. Building skill analysis from role_skills + assessment scores."
+        );
+
+        const {
+          data: roleSkills,
+          error: roleSkillsError,
+        } = await supabase
+          .from("role_skills")
+          .select(
+            `
+              skill_id,
+              required_level,
+              priority
+            `
+          )
+          .eq("role_id", attempt.role_id);
+
+        if (roleSkillsError) {
+          console.error(
+            "ROLE SKILLS ERROR:",
+            roleSkillsError
+          );
+
+          throw new Error(
+            `Unable to load career skill requirements: ${roleSkillsError.message}`
+          );
+        }
+
+        // =====================================================
+        // 8. GET SKILL SCORES FROM ASSESSMENT
+        // =====================================================
+
+        const {
+          data: skillScores,
+          error: skillScoresError,
+        } = await supabase
+          .from("user_skill_assessment_scores")
+          .select(
+            `
+              skill_id,
+              skill_name,
+              skill_score
+            `
+          )
+          .eq("user_id", user.id)
+          .eq("attempt_id", attempt.id)
+          .eq("role_id", attempt.role_id);
+
+        if (skillScoresError) {
+          console.error(
+            "SKILL SCORES ERROR:",
+            skillScoresError
+          );
+
+          throw new Error(
+            `Unable to load your skill scores: ${skillScoresError.message}`
+          );
+        }
+
+        // =====================================================
+        // 9. BUILD SCORE MAP
+        // =====================================================
+
+        const scoreMap =
+          new Map<number, SkillScore>();
+
+        (
+          (skillScores ?? []) as SkillScore[]
+        ).forEach((row) => {
+          scoreMap.set(
+            Number(row.skill_id),
+            {
+              skill_id:
+                Number(row.skill_id),
+              skill_name:
+                row.skill_name,
+              skill_score:
+                row.skill_score === null
+                  ? null
+                  : Number(row.skill_score),
+            }
+          );
+        });
+
+        // =====================================================
+        // 10. GET SKILL NAMES FOR ROLE SKILLS
+        // =====================================================
+
+        const roleSkillIds =
+          (roleSkills ?? []).map(
+            (row: RoleSkill) =>
+              Number(row.skill_id)
+          );
+
+        let skillNameMap =
+          new Map<number, string>();
+
+        if (roleSkillIds.length > 0) {
+          const {
+            data: skillRows,
+            error: skillRowsError,
+          } = await supabase
+            .from("skills")
+            .select("id, name")
+            .in("id", roleSkillIds);
+
+          if (skillRowsError) {
+            console.warn(
+              "SKILL NAME ERROR:",
+              skillRowsError
+            );
+          } else {
+            (skillRows ?? []).forEach(
+              (row) => {
+                skillNameMap.set(
+                  Number(row.id),
+                  row.name
+                );
+              }
+            );
+          }
+        }
+
+        // =====================================================
+        // 11. BUILD COMPLETE SKILL ANALYSIS
+        // =====================================================
+
+        const calculatedSkills: SkillGap[] =
+          (roleSkills ?? []).map(
+            (roleSkill: RoleSkill) => {
+              const skillId =
+                Number(roleSkill.skill_id);
+
+              const scoreRow =
+                scoreMap.get(skillId);
+
+              const isAssessed =
+                Boolean(scoreRow);
+
+              const score =
+                scoreRow && scoreRow.skill_score !== null
+                  ? Number(
+                    scoreRow.skill_score
+                  )
+                  : null;
+
+              const required =
+                Number(
+                  roleSkill.required_level ?? 0
+                );
+
+              const gap =
+                score === null
+                  ? null
+                  : Math.max(
+                    0,
+                    required - score
+                  );
+
+              let status =
+                "Not Assessed";
+
+              if (score !== null) {
+                if (score >= required) {
+                  status = "Strong";
+                } else if (
+                  gap !== null &&
+                  gap >= 25
+                ) {
+                  status = "Critical Gap";
+                } else if (
+                  gap !== null &&
+                  gap >= 10
+                ) {
+                  status =
+                    "Needs Improvement";
+                } else {
+                  status =
+                    "Good Progress";
+                }
+              }
+
+              return {
+                skill_id: skillId,
+
+                skill_name:
+                  scoreRow?.skill_name ??
+                  skillNameMap.get(
+                    skillId
+                  ) ??
+                  "Unnamed skill",
+
+                skill_score: score,
+
+                required_level: required,
+
+                priority:
+                  roleSkill.priority ??
+                  null,
+
+                skill_gap: gap,
+
+                status,
+              };
+            }
+          );
+
+        // =====================================================
+        // 12. SORT
+        // =====================================================
+
+        calculatedSkills.sort(
+          (a, b) => {
+            const gapA =
+              a.skill_gap ?? -1;
+
+            const gapB =
+              b.skill_gap ?? -1;
+
+            return gapB - gapA;
+          }
+        );
+
+        console.log(
+          "Calculated skill analysis:",
+          calculatedSkills
+        );
+
+        setSkills(
+          calculatedSkills
+        );
       } catch (err) {
-        console.error(err);
+        console.error(
+          "SKILL ANALYSIS ERROR:",
+          err
+        );
 
         setError(
           err instanceof Error
@@ -125,36 +485,86 @@ export default function SkillsPage() {
     loadSkillAnalysis();
   }, []);
 
-  const overallScore = useMemo(() => {
-    if (skills.length === 0) return 0;
-
-    const total = skills.reduce(
-      (sum, skill) => sum + Number(skill.skill_score),
-      0
-    );
-
-    return Math.round(total / skills.length);
-  }, [skills]);
+  // ===========================================================
+  // STRONGEST SKILL
+  // ===========================================================
 
   const strongestSkill = useMemo(() => {
-    if (skills.length === 0) return null;
+    const assessedSkills =
+      skills.filter(
+        (skill) =>
+          skill.skill_score !== null
+      );
 
-    return [...skills].sort(
+    if (
+      assessedSkills.length === 0
+    ) {
+      return null;
+    }
+
+    return [...assessedSkills].sort(
       (a, b) =>
         Number(b.skill_score) -
         Number(a.skill_score)
     )[0];
   }, [skills]);
 
-  const biggestGap = useMemo(() => {
-    if (skills.length === 0) return null;
+  // ===========================================================
+  // BIGGEST GAP
+  // ===========================================================
 
-    return [...skills].sort(
+  const biggestGap = useMemo(() => {
+    const skillsWithGaps =
+      skills.filter(
+        (skill) =>
+          skill.skill_gap !== null &&
+          Number(skill.skill_gap) > 0
+      );
+
+    if (
+      skillsWithGaps.length === 0
+    ) {
+      return null;
+    }
+
+    return [...skillsWithGaps].sort(
       (a, b) =>
         Number(b.skill_gap) -
         Number(a.skill_gap)
     )[0];
   }, [skills]);
+
+  // ===========================================================
+  // STATUS STYLE
+  // ===========================================================
+
+  function getStatusStyle(
+    status: string
+  ) {
+    switch (status) {
+      case "Strong":
+        return "bg-green-50 text-green-700";
+
+      case "Good Progress":
+        return "bg-blue-50 text-blue-700";
+
+      case "Needs Improvement":
+        return "bg-amber-50 text-amber-700";
+
+      case "Critical Gap":
+        return "bg-red-50 text-red-700";
+
+      case "Not Assessed":
+        return "bg-gray-100 text-gray-600";
+
+      default:
+        return "bg-gray-100 text-gray-600";
+    }
+  }
+
+  // ===========================================================
+  // LOADING
+  // ===========================================================
 
   if (loading) {
     return (
@@ -170,6 +580,10 @@ export default function SkillsPage() {
     );
   }
 
+  // ===========================================================
+  // ERROR
+  // ===========================================================
+
   if (error) {
     return (
       <main className="min-h-screen bg-[#f8f9fc] px-6 py-10">
@@ -182,17 +596,33 @@ export default function SkillsPage() {
             <p className="mt-2 text-sm text-red-700">
               {error}
             </p>
+
+            <button
+              onClick={() =>
+                router.push(
+                  "/assessment"
+                )
+              }
+              className="mt-5 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Take Assessment Again
+            </button>
           </div>
         </div>
       </main>
     );
   }
 
+  // ===========================================================
+  // PAGE
+  // ===========================================================
+
   return (
     <main className="min-h-screen bg-[#f8f9fc] px-6 py-10">
       <div className="mx-auto max-w-6xl">
 
-        {/* Header */}
+        {/* HEADER */}
+
         <div className="mb-8">
           <p className="text-sm font-semibold text-indigo-600">
             Skill Analysis
@@ -203,24 +633,34 @@ export default function SkillsPage() {
           </h1>
 
           <p className="mt-2 max-w-2xl text-gray-500">
-            Your skill levels are calculated from your
-            assessment answers and compared with the
-            requirements for your target career.
+            Your skill levels are calculated from
+            your latest assessment and compared
+            with the requirements for your target
+            career.
           </p>
         </div>
 
-        {/* Summary */}
+        {/* SUMMARY */}
+
         <div className="grid gap-4 md:grid-cols-3">
+
+          {/* OVERALL */}
 
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-gray-500">
-              Overall Skill Score
+              Overall Assessment Score
             </p>
 
             <p className="mt-2 text-3xl font-bold text-gray-900">
-              {overallScore}%
+              {overallScore.toFixed(0)}%
+            </p>
+
+            <p className="mt-1 text-xs text-gray-400">
+              Latest 20-question assessment
             </p>
           </div>
+
+          {/* STRONGEST */}
 
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-gray-500">
@@ -228,7 +668,9 @@ export default function SkillsPage() {
             </p>
 
             <p className="mt-2 text-xl font-bold text-gray-900">
-              {strongestSkill?.skill_name ?? "—"}
+              {strongestSkill
+                ? strongestSkill.skill_name
+                : "Not Assessed"}
             </p>
 
             {strongestSkill && (
@@ -241,17 +683,21 @@ export default function SkillsPage() {
             )}
           </div>
 
+          {/* BIGGEST GAP */}
+
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-gray-500">
               Biggest Skill Gap
             </p>
 
             <p className="mt-2 text-xl font-bold text-gray-900">
-              {biggestGap?.skill_name ?? "—"}
+              {biggestGap
+                ? biggestGap.skill_name
+                : "No major gap"}
             </p>
 
             {biggestGap && (
-              <p className="mt-1 text-sm text-amber-600">
+              <p className="mt-1 text-sm text-red-600">
                 {Number(
                   biggestGap.skill_gap
                 ).toFixed(0)}
@@ -259,10 +705,10 @@ export default function SkillsPage() {
               </p>
             )}
           </div>
-
         </div>
 
-        {/* Skill List */}
+        {/* BREAKDOWN */}
+
         <div className="mt-8 rounded-2xl border border-gray-200 bg-white shadow-sm">
 
           <div className="border-b border-gray-100 px-6 py-5">
@@ -271,120 +717,237 @@ export default function SkillsPage() {
             </h2>
 
             <p className="mt-1 text-sm text-gray-500">
-              Ranked by the size of your current skill gap.
+              Skills are ranked by the size of
+              the current gap.
             </p>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {skills.map((skill) => {
-              const score = Number(skill.skill_score);
-              const required = Number(
-                skill.required_level
-              );
-              const gap = Number(skill.skill_gap);
+          {skills.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="font-medium text-gray-900">
+                No skill analysis available yet.
+              </p>
 
-              return (
-                <div
-                  key={skill.skill_id}
-                  className="p-6"
-                >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <p className="mt-1 text-sm text-gray-500">
+                Complete an assessment to
+                generate your personalized
+                skill analysis.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100">
 
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {skill.skill_name}
-                        </h3>
+              {skills.map((skill) => {
+                const isAssessed =
+                  skill.skill_score !== null;
 
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            skill.status === "Strong"
-                              ? "bg-green-50 text-green-700"
-                              : skill.status === "Good"
-                              ? "bg-blue-50 text-blue-700"
-                              : skill.status ===
-                                "Needs Improvement"
-                              ? "bg-amber-50 text-amber-700"
-                              : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {skill.status}
-                        </span>
+                const score =
+                  skill.skill_score !== null
+                    ? Number(
+                      skill.skill_score
+                    )
+                    : 0;
 
-                        <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
-                          {skill.priority}
-                        </span>
+                const required =
+                  Number(
+                    skill.required_level
+                  );
+
+                const gap =
+                  skill.skill_gap !== null
+                    ? Number(
+                      skill.skill_gap
+                    )
+                    : null;
+
+                return (
+                  <div
+                    key={skill.skill_id}
+                    className="p-6"
+                  >
+
+                    {/* TOP */}
+
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+
+                      <div className="min-w-0">
+
+                        <div className="flex flex-wrap items-center gap-2">
+
+                          <h3 className="font-semibold text-gray-900">
+                            {skill.skill_name}
+                          </h3>
+
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusStyle(
+                              skill.status
+                            )}`}
+                          >
+                            {skill.status}
+                          </span>
+
+                          {skill.priority && (
+                            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                              Priority{" "}
+                              {skill.priority}
+                            </span>
+                          )}
+
+                        </div>
+
+                        <p className="mt-1 text-sm text-gray-500">
+                          Required level:{" "}
+                          {required}%
+                        </p>
+
                       </div>
 
-                      <p className="mt-1 text-sm text-gray-500">
-                        Required level: {required}%
-                      </p>
+                      {/* SCORE */}
+
+                      <div className="text-left md:text-right">
+
+                        {isAssessed ? (
+                          <>
+                            <p className="text-2xl font-bold text-gray-900">
+                              {score.toFixed(0)}%
+                            </p>
+
+                            {gap !== null &&
+                              gap > 0 ? (
+                              <p className="text-sm font-medium text-amber-600">
+                                {gap.toFixed(
+                                  0
+                                )}
+                                % gap
+                              </p>
+                            ) : (
+                              <p className="text-sm font-medium text-green-600">
+                                Requirement met
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm font-medium text-gray-500">
+                            Not assessed
+                          </p>
+                        )}
+
+                      </div>
                     </div>
 
-                    <div className="text-left md:text-right">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {score.toFixed(0)}%
-                      </p>
+                    {/* PROGRESS */}
 
-                      <p
-                        className={`text-sm font-medium ${
-                          gap > 0
-                            ? "text-amber-600"
-                            : "text-green-600"
-                        }`}
-                      >
-                        {gap > 0
-                          ? `${gap.toFixed(0)}% gap`
-                          : "Requirement met"}
-                      </p>
+                    <div className="mt-4">
+
+                      <div className="relative h-3 overflow-hidden rounded-full bg-gray-100">
+
+                        {isAssessed && (
+                          <div
+                            className="h-full rounded-full bg-indigo-600 transition-all"
+                            style={{
+                              width: `${Math.min(
+                                score,
+                                100
+                              )}%`,
+                            }}
+                          />
+                        )}
+
+                      </div>
+
+                      {isAssessed && (
+                        <div className="mt-2 flex justify-between text-xs text-gray-400">
+                          <span>
+                            Current:{" "}
+                            {score.toFixed(
+                              0
+                            )}
+                            %
+                          </span>
+
+                          <span>
+                            Required:{" "}
+                            {required}%
+                          </span>
+                        </div>
+                      )}
+
                     </div>
+
+                    {/* CRITICAL */}
+
+                    {skill.status ===
+                      "Critical Gap" && (
+                        <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+                          <p className="text-sm text-red-800">
+                            <span className="font-semibold">
+                              Priority focus:
+                            </span>{" "}
+                            Your{" "}
+                            {skill.skill_name}{" "}
+                            knowledge needs
+                            significant
+                            improvement.
+                          </p>
+                        </div>
+                      )}
+
+                    {/* NEEDS IMPROVEMENT */}
+
+                    {skill.status ===
+                      "Needs Improvement" && (
+                        <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                          <p className="text-sm text-amber-800">
+                            <span className="font-semibold">
+                              Recommended focus:
+                            </span>{" "}
+                            Continue improving{" "}
+                            {skill.skill_name}{" "}
+                            to reach the
+                            required{" "}
+                            {required}% level.
+                          </p>
+                        </div>
+                      )}
+
+                    {/* NOT ASSESSED */}
+
+                    {skill.status ===
+                      "Not Assessed" && (
+                        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                          <p className="text-sm text-gray-600">
+                            This skill was not
+                            covered by your
+                            latest 20-question
+                            assessment.
+                          </p>
+                        </div>
+                      )}
+
                   </div>
+                );
+              })}
 
-                  {/* Progress */}
-                  <div className="mt-4">
-                    <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-indigo-600 transition-all"
-                        style={{
-                          width: `${Math.min(
-                            score,
-                            100
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
+            </div>
+          )}
+        </div>
 
-                  {/* Recommendation */}
-                  {gap > 0 && (
-                    <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3">
-                      <p className="text-sm text-gray-700">
-                        <span className="font-semibold">
-                          Recommended focus:
-                        </span>{" "}
-                        Improve your{" "}
-                        {skill.skill_name} skills
-                        to reach the required
-                        {` ${required}% `}
-                        level.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        {/* ROADMAP */}
+
+        <div className="mt-8 flex justify-end">
+          <button
+            onClick={() =>
+              router.push(
+                "/roadmap"
+              )
+            }
+            className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+          >
+            View My Personalized Roadmap →
+          </button>
         </div>
 
       </div>
-      <div className="mt-8 flex justify-end">
-  <button
-    onClick={() => router.push("/roadmap")}
-    className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-  >
-    View My Personalized Roadmap →
-  </button>
-</div>
     </main>
   );
 }

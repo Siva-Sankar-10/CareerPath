@@ -86,15 +86,22 @@ function selectBalancedQuestions(
     )
   );
 
-  let selected: Question[] = [];
+  const selected: Question[] = [];
+
+  /*
+    First try to maintain the desired
+    difficulty distribution.
+  */
 
   selected.push(...basic.slice(0, 6));
   selected.push(...intermediate.slice(0, 8));
   selected.push(...advanced.slice(0, 6));
 
   /*
-    If one difficulty category does not have
-    enough questions, fill from remaining questions.
+    If there are not enough questions in
+    one of the difficulty categories,
+    fill the remaining slots from the
+    unused question bank.
   */
 
   if (selected.length < TOTAL_QUESTIONS) {
@@ -117,7 +124,7 @@ function selectBalancedQuestions(
   }
 
   /*
-    Remove accidental duplicates by ID.
+    Remove duplicates by question ID.
   */
 
   const uniqueQuestions = Array.from(
@@ -178,6 +185,16 @@ export default function AssessmentPage() {
       setLoading(true);
       setError("");
 
+      /*
+        Reset previous assessment state
+        whenever the role changes.
+      */
+
+      setCareer(null);
+      setQuestions([]);
+      setCurrentQuestion(0);
+      setAnswers({});
+
       const supabase = createClient();
 
       try {
@@ -206,23 +223,57 @@ export default function AssessmentPage() {
         let selectedCareer: Career | null = null;
 
         /*
-          URL example:
+          Case 1:
+          URL contains role ID.
 
-          /assessment?role=Cybersecurity%20Analyst
+          Example:
+
+          /assessment?role=5
         */
 
         if (roleFromUrl) {
+          const roleId = Number(roleFromUrl);
+
+          if (
+            !Number.isInteger(roleId) ||
+            roleId <= 0
+          ) {
+            setError(
+              "Invalid career role selected."
+            );
+
+            setLoading(false);
+            return;
+          }
+
           const {
             data: careerData,
             error: careerError,
           } = await supabase
             .from("career_roles")
             .select("id, name")
-            .eq("name", roleFromUrl)
-            .single();
+            .eq("id", roleId)
+            .maybeSingle();
 
-          if (careerError || !careerData) {
-            console.error(careerError);
+          if (careerError) {
+            console.error(
+              "Career lookup error:",
+              careerError
+            );
+
+            setError(
+              `Unable to load the selected career: ${careerError.message}`
+            );
+
+            setLoading(false);
+            return;
+          }
+
+          if (!careerData) {
+            console.error(
+              "Career not found for role ID:",
+              roleId
+            );
 
             setError(
               "Unable to find the selected career."
@@ -236,28 +287,40 @@ export default function AssessmentPage() {
         }
 
         /*
-          If URL does not contain a role,
-          get role from profile.
+          Case 2:
+          No role was provided in the URL.
+
+          In this case, use the user's
+          target_role_id from profiles.
         */
 
         else {
           const {
-            data: profile,
+            data: profileData,
             error: profileError,
           } = await supabase
             .from("profiles")
             .select("target_role_id")
             .eq("id", user.id)
-            .single();
+            .maybeSingle();
 
-          if (
-            profileError ||
-            !profile?.target_role_id
-          ) {
-            console.error(profileError);
+          if (profileError) {
+            console.error(
+              "Profile lookup error:",
+              profileError
+            );
 
             setError(
-              "No career role selected. Please select your target career first."
+              `Unable to load your career profile: ${profileError.message}`
+            );
+
+            setLoading(false);
+            return;
+          }
+
+          if (!profileData?.target_role_id) {
+            setError(
+              "Please select a target career before starting the assessment."
             );
 
             setLoading(false);
@@ -272,18 +335,27 @@ export default function AssessmentPage() {
             .select("id, name")
             .eq(
               "id",
-              profile.target_role_id
+              profileData.target_role_id
             )
-            .single();
+            .maybeSingle();
 
-          if (
-            careerError ||
-            !careerData
-          ) {
-            console.error(careerError);
+          if (careerError) {
+            console.error(
+              "Career lookup error:",
+              careerError
+            );
 
             setError(
-              "Unable to load your selected career."
+              `Unable to load your target career: ${careerError.message}`
+            );
+
+            setLoading(false);
+            return;
+          }
+
+          if (!careerData) {
+            setError(
+              "Your selected career could not be found."
             );
 
             setLoading(false);
@@ -293,16 +365,33 @@ export default function AssessmentPage() {
           selectedCareer = careerData;
         }
 
+        /* -------------------------------------------------
+           IMPORTANT:
+           SAVE CAREER TO REACT STATE
+        ------------------------------------------------- */
+
         if (!selectedCareer) {
           setError(
-            "Unable to determine your target career."
+            "Unable to determine your selected career."
           );
 
           setLoading(false);
           return;
         }
 
+        /*
+          THIS WAS MISSING IN YOUR OLD CODE.
+
+          Without this, career remained null and
+          the page displayed "No Assessment Available".
+        */
+
         setCareer(selectedCareer);
+
+        console.log(
+          "Selected career:",
+          selectedCareer
+        );
 
         /* -------------------------------------------------
            3. LOAD QUESTION BANK
@@ -333,15 +422,23 @@ export default function AssessmentPage() {
           );
 
         if (questionError) {
-          console.error(questionError);
+          console.error(
+            "Question loading error:",
+            questionError
+          );
 
           setError(
-            "Unable to load assessment questions."
+            `Unable to load assessment questions: ${questionError.message}`
           );
 
           setLoading(false);
           return;
         }
+
+        console.log(
+          "Total questions loaded:",
+          questionData?.length ?? 0
+        );
 
         if (
           !questionData ||
@@ -364,6 +461,15 @@ export default function AssessmentPage() {
           selectBalancedQuestions(
             questionData as Question[]
           );
+
+        console.log(
+          "Selected assessment questions:",
+          selectedQuestions.length
+        );
+
+        /*
+          Verify that exactly 20 were selected.
+        */
 
         if (
           selectedQuestions.length !==
@@ -390,7 +496,10 @@ export default function AssessmentPage() {
 
         setLoading(false);
       } catch (err) {
-        console.error(err);
+        console.error(
+          "Assessment loading exception:",
+          err
+        );
 
         setError(
           err instanceof Error
@@ -469,7 +578,7 @@ export default function AssessmentPage() {
   }
 
   /* =======================================================
-     SUBMIT
+     SUBMIT ASSESSMENT
   ======================================================= */
 
   async function submitAssessment() {
@@ -551,9 +660,35 @@ export default function AssessmentPage() {
         );
       }
 
+      /*
+        Extra safety check:
+        Make sure every question has an answer.
+      */
+
+      const unanswered =
+        submittedAnswers.filter(
+          (answer) =>
+            !answer.selected_option
+        );
+
+      if (unanswered.length > 0) {
+        throw new Error(
+          `There are ${unanswered.length} unanswered questions.`
+        );
+      }
+
       /* -------------------------------------------------
          3. SEND TO POSTGRESQL RPC
       ------------------------------------------------- */
+
+      console.log(
+        "Submitting assessment:",
+        {
+          role_id: career.id,
+          question_count:
+            submittedAnswers.length,
+        }
+      );
 
       const {
         data,
@@ -572,14 +707,62 @@ export default function AssessmentPage() {
 
       if (submitError) {
         console.error(
-          "Assessment submission error:",
+          "========== ASSESSMENT SUBMISSION ERROR =========="
+        );
+
+        console.error(
+          "Error:",
           submitError
         );
 
-        throw new Error(
+        console.error(
+          "Message:",
           submitError.message
         );
+
+        console.error(
+          "Details:",
+          submitError.details
+        );
+
+        console.error(
+          "Hint:",
+          submitError.hint
+        );
+
+        console.error(
+          "Code:",
+          submitError.code
+        );
+
+        console.error(
+          "JSON:",
+          JSON.stringify(
+            submitError,
+            null,
+            2
+          )
+        );
+
+        console.error(
+          "================================================="
+        );
+
+        setError(
+          submitError.message ||
+          submitError.details ||
+          "Assessment submission failed."
+        );
+
+        setSubmitting(false);
+
+        return;
       }
+
+      console.log(
+        "Raw assessment result:",
+        data
+      );
 
       if (!data) {
         throw new Error(
@@ -588,35 +771,68 @@ export default function AssessmentPage() {
       }
 
       /* -------------------------------------------------
-         4. VERIFY RESULT
+         4. HANDLE RPC RESULT
       ------------------------------------------------- */
+
+      /*
+        Supabase can return a single object or
+        an array depending on the PostgreSQL
+        function return type.
+
+        Handle both safely.
+      */
+
+      const rawResult =
+        Array.isArray(data)
+          ? data[0]
+          : data;
+
+      if (!rawResult) {
+        throw new Error(
+          "Assessment result was empty."
+        );
+      }
 
       const result: AssessmentResult = {
         attempt_id:
           Number(
-            data.attempt_id
+            rawResult.attempt_id
           ),
 
         total_questions:
           Number(
-            data.total_questions
+            rawResult.total_questions
           ),
 
         correct_answers:
           Number(
-            data.correct_answers
+            rawResult.correct_answers
           ),
 
         score:
           Number(
-            data.score
+            rawResult.score
           ),
       };
 
-      /*
-        Safety check:
-        The backend MUST return 20.
-      */
+      console.log(
+        "Processed assessment result:",
+        result
+      );
+
+      /* -------------------------------------------------
+         5. VERIFY RESULT
+      ------------------------------------------------- */
+
+      if (
+        !Number.isFinite(
+          result.attempt_id
+        )
+      ) {
+        throw new Error(
+          "Invalid assessment attempt ID returned by the database."
+        );
+      }
 
       if (
         result.total_questions !==
@@ -627,8 +843,28 @@ export default function AssessmentPage() {
         );
       }
 
+      if (
+        !Number.isFinite(
+          result.correct_answers
+        )
+      ) {
+        throw new Error(
+          "Invalid correct answer count returned by the database."
+        );
+      }
+
+      if (
+        !Number.isFinite(
+          result.score
+        )
+      ) {
+        throw new Error(
+          "Invalid assessment score returned by the database."
+        );
+      }
+
       /* -------------------------------------------------
-         5. SAVE RESULT
+         6. SAVE RESULT
       ------------------------------------------------- */
 
       sessionStorage.setItem(
@@ -641,14 +877,22 @@ export default function AssessmentPage() {
         career.name
       );
 
+      sessionStorage.setItem(
+        "assessment_role_id",
+        String(career.id)
+      );
+
       /* -------------------------------------------------
-         6. RESULT PAGE
+         7. REDIRECT TO RESULT
       ------------------------------------------------- */
 
       window.location.href =
         "/assessment/result";
     } catch (err) {
-      console.error(err);
+      console.error(
+        "Assessment submission exception:",
+        err
+      );
 
       setError(
         err instanceof Error
@@ -736,6 +980,29 @@ export default function AssessmentPage() {
 
   const question =
     questions[currentQuestion];
+
+  /*
+    Safety check in case the current
+    question somehow does not exist.
+  */
+
+  if (!question) {
+    return (
+      <main className="min-h-screen bg-[#f8f9fc] px-6 py-10">
+        <div className="mx-auto max-w-4xl">
+          <div className="rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
+            <h1 className="text-xl font-semibold text-gray-900">
+              Assessment Error
+            </h1>
+
+            <p className="mt-2 text-sm text-red-600">
+              Unable to load the current question.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   const selectedAnswer =
     answers[question.id];
