@@ -43,3 +43,6 @@ next-env.d.ts
 #environment
 .env.local
 .env*.local
+
+#jsoon
+tsconfig.jsoon
