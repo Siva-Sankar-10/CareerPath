@@ -138,7 +138,7 @@ export default function LoginPage() {
 
                 <Link
                   href="/forgot-password"
-                  className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-gray-900 placeholder:text-gray-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 autofill:text-gray-900"
                 >
                   Forgot password?
                 </Link>
