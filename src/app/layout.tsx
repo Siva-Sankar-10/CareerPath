@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "./components/Sidebar";
+import CareerChatbot from "./components/CareerChatbot";
 
 export const metadata: Metadata = {
   title: "CareerPath",
@@ -20,6 +21,8 @@ export default function RootLayout({
         <main className="min-h-screen">
           {children}
         </main>
+
+        <CareerChatbot />
       </body>
     </html>
   );
