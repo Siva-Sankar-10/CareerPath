@@ -40,7 +40,6 @@ export default function LoginPage() {
 
     console.log("Logged in user:", data.user);
 
-    // Check whether the user has already selected a career.
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("target_role_id")
@@ -54,13 +53,11 @@ export default function LoginPage() {
       return;
     }
 
-    // Existing user who already selected a career
     if (profile?.target_role_id) {
       router.push("/");
       return;
     }
 
-    // New/incomplete user
     router.push("/career");
   }
 
@@ -86,6 +83,7 @@ export default function LoginPage() {
     <main className="min-h-screen bg-[#f8f9fc] flex items-center justify-center px-6">
       <div className="w-full max-w-md">
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8">
+
           {/* Logo */}
           <div className="flex justify-center mb-6">
             <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center">
@@ -113,13 +111,18 @@ export default function LoginPage() {
 
           {/* Login Form */}
           <form onSubmit={handleLogin} className="space-y-5">
+
             {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="space-y-2">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700"
+              >
                 Email
               </label>
 
               <input
+                id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -130,21 +133,28 @@ export default function LoginPage() {
             </div>
 
             {/* Password */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
+            <div className="space-y-2">
+
+              {/* Password label + Forgot password */}
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="password"
+                  className="text-sm font-medium text-gray-700"
+                >
                   Password
                 </label>
 
                 <Link
                   href="/forgot-password"
-                  className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-gray-900 placeholder:text-gray-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 autofill:text-gray-900"
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition"
                 >
                   Forgot password?
                 </Link>
               </div>
 
+              {/* Password input */}
               <input
+                id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -167,7 +177,11 @@ export default function LoginPage() {
           {/* Divider */}
           <div className="flex items-center gap-4 my-6">
             <div className="h-px flex-1 bg-gray-200" />
-            <span className="text-sm text-gray-400">OR</span>
+
+            <span className="text-sm text-gray-400">
+              OR
+            </span>
+
             <div className="h-px flex-1 bg-gray-200" />
           </div>
 
@@ -178,7 +192,9 @@ export default function LoginPage() {
             disabled={googleLoading}
             className="w-full rounded-lg border border-gray-300 bg-white py-3 font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {googleLoading ? "Connecting to Google..." : "Continue with Google"}
+            {googleLoading
+              ? "Connecting to Google..."
+              : "Continue with Google"}
           </button>
 
           {/* Register */}
@@ -191,6 +207,7 @@ export default function LoginPage() {
               Create account
             </Link>
           </p>
+
         </div>
       </div>
     </main>

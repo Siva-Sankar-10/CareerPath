@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -147,10 +147,10 @@ function selectBalancedQuestions(
 }
 
 /* =========================================================
-   PAGE
+   ASSESSMENT CONTENT
 ========================================================= */
 
-export default function AssessmentPage() {
+function AssessmentContent() {
   const searchParams = useSearchParams();
 
   const roleFromUrl = searchParams.get("role");
@@ -227,7 +227,6 @@ export default function AssessmentPage() {
           URL contains role ID.
 
           Example:
-
           /assessment?role=5
         */
 
@@ -366,7 +365,6 @@ export default function AssessmentPage() {
         }
 
         /* -------------------------------------------------
-           IMPORTANT:
            SAVE CAREER TO REACT STATE
         ------------------------------------------------- */
 
@@ -378,13 +376,6 @@ export default function AssessmentPage() {
           setLoading(false);
           return;
         }
-
-        /*
-          THIS WAS MISSING IN YOUR OLD CODE.
-
-          Without this, career remained null and
-          the page displayed "No Assessment Available".
-        */
 
         setCareer(selectedCareer);
 
@@ -445,7 +436,8 @@ export default function AssessmentPage() {
           questionData.length < TOTAL_QUESTIONS
         ) {
           setError(
-            `Only ${questionData?.length ?? 0
+            `Only ${
+              questionData?.length ?? 0
             } questions are available. At least 20 questions are required.`
           );
 
@@ -646,7 +638,7 @@ export default function AssessmentPage() {
 
             selected_option:
               answers[
-              question.id
+                question.id
               ],
           })
         );
@@ -1010,7 +1002,7 @@ export default function AssessmentPage() {
   const progress = Math.round(
     ((currentQuestion + 1) /
       TOTAL_QUESTIONS) *
-    100
+      100
   );
 
   const answeredCount =
@@ -1194,20 +1186,23 @@ export default function AssessmentPage() {
                     disabled={
                       submitting
                     }
-                    className={`flex w-full items-center gap-4 rounded-xl border p-4 text-left transition ${isSelected
+                    className={`flex w-full items-center gap-4 rounded-xl border p-4 text-left transition ${
+                      isSelected
                         ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-100"
                         : "border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50"
-                      } ${submitting
+                    } ${
+                      submitting
                         ? "cursor-not-allowed opacity-70"
                         : ""
-                      }`}
+                    }`}
                   >
 
                     <span
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${isSelected
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                        isSelected
                           ? "bg-indigo-600 text-white"
                           : "bg-gray-100 text-gray-700"
-                        }`}
+                      }`}
                     >
                       {
                         option.key
@@ -1215,10 +1210,11 @@ export default function AssessmentPage() {
                     </span>
 
                     <span
-                      className={`text-sm font-medium ${isSelected
+                      className={`text-sm font-medium ${
+                        isSelected
                           ? "text-indigo-900"
                           : "text-gray-700"
-                        }`}
+                      }`}
                     >
                       {
                         option.value
@@ -1253,7 +1249,7 @@ export default function AssessmentPage() {
               }
               disabled={
                 currentQuestion ===
-                0 ||
+                  0 ||
                 submitting
               }
               className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1262,7 +1258,7 @@ export default function AssessmentPage() {
             </button>
 
             {currentQuestion <
-              questions.length -
+            questions.length -
               1 ? (
               <button
                 type="button"
@@ -1308,5 +1304,30 @@ export default function AssessmentPage() {
 
       </div>
     </main>
+  );
+}
+
+/* =========================================================
+   PAGE WRAPPER
+   Fixes Next.js useSearchParams Suspense requirement
+========================================================= */
+
+export default function AssessmentPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#f8f9fc] px-6 py-10">
+          <div className="mx-auto max-w-4xl">
+            <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+              <p className="text-sm text-gray-500">
+                Loading your assessment...
+              </p>
+            </div>
+          </div>
+        </main>
+      }
+    >
+      <AssessmentContent />
+    </Suspense>
   );
 }

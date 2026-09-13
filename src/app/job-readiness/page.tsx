@@ -1,1730 +1,1174 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import {
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  ClipboardCheck,
+  FolderKanban,
+  GraduationCap,
+  Target,
+  TrendingUp,
+  AlertTriangle,
+  Circle,
+} from "lucide-react";
 
 type Profile = {
-  full_name: string | null;
   target_role_id: number | null;
-  experience_level: string | null;
-  career_roles:
-  | {
-    id: number;
-    name: string;
-  }
-  | {
-    id: number;
-    name: string;
-  }[]
-  | null;
+};
+
+type CareerRole = {
+  id: number;
+  name: string;
 };
 
 type Assessment = {
-  id: number;
-  role_id: number;
   score: number | null;
   correct_answers: number | null;
   total_questions: number | null;
-  started_at: string | null;
   completed_at: string | null;
 };
 
 type SkillGap = {
-  attempt_id: number;
-  user_id: string;
-  role_id: number;
-  skill_id: number;
-  skill_name: string | null;
+  skill_name: string;
   skill_score: number | null;
-  required_level: number | null;
-  priority: string | null;
+  required_level: number;
   skill_gap: number | null;
   status: string | null;
-};
-
-type RoleSkill = {
-  skill_id: number;
-  required_level: number | null;
   priority: string | null;
+  created_at: string;
 };
 
-type SkillScore = {
-  skill_id: number;
-  skill_name: string | null;
-  skill_score: number | null;
+type ProgressItem = {
+  progress: number | null;
+  completed: boolean;
 };
 
-type LearningProgress = {
-  progress?: number | null;
-  percentage?: number | null;
-  completion_percentage?: number | null;
-  completed?: boolean | null;
+type ReadinessArea = {
+  key: "skills" | "projects" | "learning" | "assessment" | "certifications";
+  score: number;
+  weight: number;
+  available: boolean;
 };
 
-type ProjectProgress = {
-  progress?: number | null;
-  percentage?: number | null;
-  completion_percentage?: number | null;
-  completed?: boolean | null;
-};
+export default function JobReadinessPage() {
+  const supabase = createClient();
 
-function clamp(value: number): number {
-  return Math.max(
-    0,
-    Math.min(100, value)
-  );
-}
+  const [loading, setLoading] = useState(true);
 
-function round(value: number): number {
-  return Math.round(value);
-}
+  const [role, setRole] = useState<CareerRole | null>(null);
 
-function getInitials(name: string): string {
-  const words = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  const [assessment, setAssessment] =
+    useState<Assessment | null>(null);
 
-  if (words.length === 0) {
-    return "U";
-  }
+  const [skills, setSkills] = useState<SkillGap[]>([]);
+  const [learning, setLearning] = useState<ProgressItem[]>([]);
+  const [projects, setProjects] = useState<ProgressItem[]>([]);
+  const [certifications, setCertifications] =
+    useState<ProgressItem[]>([]);
 
-  return words
-    .slice(0, 2)
-    .map((word) =>
-      word.charAt(0).toUpperCase()
-    )
-    .join("");
-}
+  useEffect(() => {
+    loadReadiness();
+  }, []);
 
-function average(values: number[]): number {
-  if (values.length === 0) {
-    return 0;
-  }
+  async function loadReadiness() {
+    setLoading(true);
 
-  return round(
-    values.reduce(
-      (sum, value) =>
-        sum + value,
-      0
-    ) / values.length
-  );
-}
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-function getReadinessStatus(
-  score: number
-) {
-  if (score >= 90) {
-    return {
-      label: "Job Ready",
-      description:
-        "Your current profile shows strong alignment with your target career.",
-      className:
-        "border-emerald-200 bg-emerald-50 text-emerald-700",
-      ringClass:
-        "text-emerald-600",
-    };
-  }
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-  if (score >= 75) {
-    return {
-      label: "Nearly Job Ready",
-      description:
-        "You have built a strong foundation, but a few areas still need attention.",
-      className:
-        "border-blue-200 bg-blue-50 text-blue-700",
-      ringClass:
-        "text-blue-600",
-    };
-  }
+      /* ================================
+         PROFILE
+      ================================= */
 
-  if (score >= 60) {
-    return {
-      label: "Developing",
-      description:
-        "You are making good progress toward your target career.",
-      className:
-        "border-amber-200 bg-amber-50 text-amber-700",
-      ringClass:
-        "text-amber-600",
-    };
-  }
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from("profiles")
+          .select("target_role_id")
+          .eq("id", user.id)
+          .maybeSingle();
 
-  if (score >= 40) {
-    return {
-      label:
-        "Building Foundations",
-      description:
-        "You have started developing the required skills, but several areas need improvement.",
-      className:
-        "border-orange-200 bg-orange-50 text-orange-700",
-      ringClass:
-        "text-orange-600",
-    };
-  }
+      if (profileError) {
+        console.error("PROFILE ERROR:", profileError);
+      }
 
-  return {
-    label: "Not Ready Yet",
-    description:
-      "Focus on your highest-priority skill gaps and follow your personalized roadmap.",
-    className:
-      "border-red-200 bg-red-50 text-red-700",
-    ringClass:
-      "text-red-600",
-  };
-}
+      const profile = profileData as Profile | null;
 
-function getProgressValue(
-  row:
-    | LearningProgress
-    | ProjectProgress
-): number {
-  if (
-    typeof row.progress ===
-    "number"
-  ) {
-    return clamp(row.progress);
-  }
+      /* ================================
+         ROLE
+      ================================= */
 
-  if (
-    typeof row.percentage ===
-    "number"
-  ) {
-    return clamp(
-      row.percentage
-    );
-  }
+      if (profile?.target_role_id) {
+        const { data: roleData, error: roleError } =
+          await supabase
+            .from("career_roles")
+            .select("id, name")
+            .eq("id", profile.target_role_id)
+            .maybeSingle();
 
-  if (
-    typeof row.completion_percentage ===
-    "number"
-  ) {
-    return clamp(
-      row.completion_percentage
-    );
-  }
-
-  if (
-    row.completed === true
-  ) {
-    return 100;
-  }
-
-  return 0;
-}
-
-export default async function JobReadinessPage() {
-  const supabase =
-    await createClient();
-
-  // =========================================================
-  // 1. AUTH
-  // =========================================================
-
-  const {
-    data: { user },
-  } =
-    await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  // =========================================================
-  // 2. PROFILE
-  // =========================================================
-
-  const {
-    data: profileData,
-    error: profileError,
-  } = await supabase
-    .from("profiles")
-    .select(
-      `
-        full_name,
-        target_role_id,
-        experience_level,
-        career_roles (
-          id,
-          name
-        )
-      `
-    )
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error(
-      "PROFILE ERROR:",
-      profileError
-    );
-  }
-
-  const profile =
-    profileData as Profile | null;
-
-  const targetRoleId =
-    profile?.target_role_id ??
-    null;
-
-  const roleData =
-    profile?.career_roles;
-
-  const targetRole =
-    Array.isArray(roleData)
-      ? roleData[0]?.name ??
-      "Career Goal"
-      : roleData?.name ??
-      "Career Goal";
-
-  const userName =
-    profile?.full_name?.trim() ||
-    user.email?.split("@")[0] ||
-    "User";
-
-  const initials =
-    getInitials(userName);
-
-  // =========================================================
-  // 3. LATEST COMPLETED ASSESSMENT
-  // =========================================================
-
-  const {
-    data: assessmentData,
-    error: assessmentError,
-  } =
-    await supabase
-      .from("assessment_attempts")
-      .select(
-        `
-          id,
-          role_id,
-          score,
-          correct_answers,
-          total_questions,
-          started_at,
-          completed_at
-        `
-      )
-      .eq("user_id", user.id)
-      .not(
-        "completed_at",
-        "is",
-        null
-      )
-      .order(
-        "completed_at",
-        {
-          ascending: false,
+        if (roleError) {
+          console.error("ROLE ERROR:", roleError);
         }
-      )
-      .order(
-        "id",
-        {
-          ascending: false,
-        }
-      )
-      .limit(1)
-      .maybeSingle();
 
-  if (assessmentError) {
-    console.error(
-      "ASSESSMENT ERROR:",
-      assessmentError
-    );
-  }
+        setRole(roleData);
+      } else {
+        setRole(null);
+      }
 
-  const assessment =
-    assessmentData as Assessment | null;
+      /* ================================
+         ASSESSMENT
+      ================================= */
 
-  console.log(
-    "JOB READINESS - LATEST ASSESSMENT:",
-    assessment
-  );
-
-  const assessmentScore =
-    assessment
-      ? clamp(
-        Number(
-          assessment.score ?? 0
+      const {
+        data: assessmentData,
+        error: assessmentError,
+      } = await supabase
+        .from("assessment_attempts")
+        .select(
+          `
+            score,
+            correct_answers,
+            total_questions,
+            completed_at
+          `
         )
-      )
-      : 0;
+        .eq("user_id", user.id)
+        .eq("role_id", profile?.target_role_id ?? -1)
+        .not("completed_at", "is", null)
+        .order("completed_at", {
+          ascending: false,
+        })
+        .limit(1)
+        .maybeSingle();
 
-  // =========================================================
-  // 4. LOAD SKILL GAPS
-  // =========================================================
+      if (assessmentError) {
+        console.error(
+          "ASSESSMENT ERROR:",
+          assessmentError
+        );
+      }
 
-  let skillGaps: SkillGap[] =
-    [];
+      setAssessment(assessmentData);
 
-  if (assessment) {
-    const {
-      data: existingGaps,
-      error: gapError,
-    } =
-      await supabase
+      /* ================================
+         SKILL GAPS
+      ================================= */
+
+      const {
+        data: skillData,
+        error: skillError,
+      } = await supabase
         .from("user_skill_gaps")
         .select(
           `
-            attempt_id,
-            user_id,
-            role_id,
-            skill_id,
             skill_name,
             skill_score,
             required_level,
-            priority,
             skill_gap,
-            status
+            status,
+            priority,
+            created_at
           `
         )
-        .eq(
-          "user_id",
-          user.id
-        )
-        .eq(
-          "attempt_id",
-          assessment.id
-        )
-        .eq(
-          "role_id",
-          assessment.role_id
-        )
-        .order(
-          "skill_gap",
-          {
-            ascending: false,
-            nullsFirst: false,
-          }
-        );
+        .eq("user_id", user.id)
+        .eq("role_id", profile?.target_role_id ?? -1)
+        .order("created_at", {
+          ascending: false,
+        });
 
-    if (gapError) {
-      console.warn(
-        "USER SKILL GAPS ERROR:",
-        gapError
-      );
-    }
-
-    if (
-      existingGaps &&
-      existingGaps.length > 0
-    ) {
-      skillGaps =
-        existingGaps.map(
-          (row) => ({
-            attempt_id:
-              Number(
-                row.attempt_id
-              ),
-
-            user_id:
-              row.user_id,
-
-            role_id:
-              Number(
-                row.role_id
-              ),
-
-            skill_id:
-              Number(
-                row.skill_id
-              ),
-
-            skill_name:
-              row.skill_name,
-
-            skill_score:
-              row.skill_score ===
-                null
-                ? null
-                : Number(
-                  row.skill_score
-                ),
-
-            required_level:
-              row.required_level ===
-                null
-                ? null
-                : Number(
-                  row.required_level
-                ),
-
-            priority:
-              row.priority,
-
-            skill_gap:
-              row.skill_gap ===
-                null
-                ? null
-                : Number(
-                  row.skill_gap
-                ),
-
-            status:
-              row.status,
-          })
-        );
-    } else {
-      // =======================================================
-      // FALLBACK CALCULATION
-      // =======================================================
-
-      console.log(
-        "No stored skill gaps found. Calculating them from assessment scores + role requirements."
-      );
-
-      // -------------------------------------------------------
-      // ROLE SKILLS
-      // -------------------------------------------------------
-
-      const {
-        data: roleSkills,
-        error: roleSkillsError,
-      } =
-        await supabase
-          .from("role_skills")
-          .select(
-            `
-              skill_id,
-              required_level,
-              priority
-            `
-          )
-          .eq(
-            "role_id",
-            assessment.role_id
-          );
-
-      if (roleSkillsError) {
+      if (skillError) {
         console.error(
-          "ROLE SKILLS ERROR:",
-          roleSkillsError
+          "SKILL GAP ERROR:",
+          skillError
         );
       }
 
-      // -------------------------------------------------------
-      // ASSESSMENT SKILL SCORES
-      // -------------------------------------------------------
+      /*
+       * Keep only the newest result
+       * for each skill.
+       */
+      const latestSkills: SkillGap[] = [];
+      const seenSkills = new Set<string>();
 
-      const {
-        data: skillScores,
-        error: skillScoresError,
-      } =
-        await supabase
-          .from(
-            "user_skill_assessment_scores"
-          )
-          .select(
-            `
-              skill_id,
-              skill_name,
-              skill_score
-            `
-          )
-          .eq(
-            "user_id",
-            user.id
-          )
-          .eq(
-            "attempt_id",
-            assessment.id
-          )
-          .eq(
-            "role_id",
-            assessment.role_id
-          );
+      for (const item of skillData || []) {
+        if (!seenSkills.has(item.skill_name)) {
+          seenSkills.add(item.skill_name);
 
-      if (skillScoresError) {
-        console.error(
-          "SKILL SCORES ERROR:",
-          skillScoresError
-        );
-      }
-
-      // -------------------------------------------------------
-      // SCORE MAP
-      // -------------------------------------------------------
-
-      const scoreMap =
-        new Map<
-          number,
-          SkillScore
-        >();
-
-      (
-        skillScores ??
-        []
-      ).forEach(
-        (row) => {
-          scoreMap.set(
-            Number(
-              row.skill_id
-            ),
-            {
-              skill_id:
-                Number(
-                  row.skill_id
-                ),
-
-              skill_name:
-                row.skill_name,
-
-              skill_score:
-                row.skill_score ===
-                  null
-                  ? null
-                  : Number(
-                    row.skill_score
-                  ),
-            }
-          );
+          latestSkills.push({
+            skill_name: item.skill_name,
+            skill_score: item.skill_score,
+            required_level: item.required_level,
+            skill_gap: item.skill_gap,
+            status: item.status,
+            priority: item.priority,
+            created_at: item.created_at,
+          });
         }
-      );
+      }
 
-      // -------------------------------------------------------
-      // GET SKILL NAMES
-      // -------------------------------------------------------
+      setSkills(latestSkills);
 
-      const skillIds =
-        (
-          roleSkills ??
-          []
-        ).map(
-          (row: RoleSkill) =>
-            Number(
-              row.skill_id
-            )
+      /* ================================
+         LEARNING
+      ================================= */
+
+      const {
+        data: learningData,
+        error: learningError,
+      } = await supabase
+        .from("user_learning_progress")
+        .select(
+          `
+            progress,
+            completed
+          `
+        )
+        .eq("user_id", user.id);
+
+      if (learningError) {
+        console.error(
+          "LEARNING ERROR:",
+          learningError
         );
+      }
 
-      const skillNameMap =
-        new Map<
-          number,
-          string
-        >();
+      setLearning(learningData || []);
 
-      if (
-        skillIds.length >
+      /* ================================
+         PROJECTS
+      ================================= */
+
+      const {
+        data: projectData,
+        error: projectError,
+      } = await supabase
+        .from("user_project_progress")
+        .select(
+          `
+            progress,
+            completed
+          `
+        )
+        .eq("user_id", user.id);
+
+      if (projectError) {
+        console.error(
+          "PROJECT ERROR:",
+          projectError
+        );
+      }
+
+      setProjects(projectData || []);
+
+      /* ================================
+         CERTIFICATIONS
+      ================================= */
+
+      const {
+        data: certificationData,
+        error: certificationError,
+      } = await supabase
+        .from("user_certification_progress")
+        .select(
+          `
+            progress,
+            completed
+          `
+        )
+        .eq("user_id", user.id);
+
+      if (certificationError) {
+        console.error(
+          "CERTIFICATION ERROR:",
+          certificationError
+        );
+      }
+
+      setCertifications(certificationData || []);
+    } catch (error) {
+      console.error(
+        "JOB READINESS ERROR:",
+        error
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ================================
+     ASSESSED SKILLS
+  ================================= */
+
+  const assessedSkills = useMemo(
+    () =>
+      skills.filter(
+        (skill) => skill.skill_score !== null
+      ),
+    [skills]
+  );
+
+  /* ================================
+     SKILL SCORE
+  ================================= */
+
+  const skillScore = useMemo(() => {
+    if (!assessedSkills.length) {
+      return 0;
+    }
+
+    return Math.round(
+      assessedSkills.reduce(
+        (sum, skill) =>
+          sum + Number(skill.skill_score ?? 0),
         0
-      ) {
-        const {
-          data: skillRows,
-        } =
-          await supabase
-            .from("skills")
-            .select(
-              "id, name"
-            )
-            .in(
-              "id",
-              skillIds
-            );
+      ) / assessedSkills.length
+    );
+  }, [assessedSkills]);
 
-        (
-          skillRows ??
-          []
-        ).forEach(
-          (row) => {
-            skillNameMap.set(
-              Number(row.id),
-              row.name
-            );
-          }
-        );
-      }
+  /* ================================
+     LEARNING SCORE
+  ================================= */
 
-      // -------------------------------------------------------
-      // BUILD GAPS
-      // -------------------------------------------------------
-
-      skillGaps =
-        (
-          roleSkills ??
-          []
-        ).map(
-          (
-            roleSkill: RoleSkill
-          ) => {
-            const skillId =
-              Number(
-                roleSkill.skill_id
-              );
-
-            const scoreRow =
-              scoreMap.get(
-                skillId
-              );
-
-            const score =
-              scoreRow &&
-                scoreRow.skill_score !==
-                null
-                ? Number(
-                  scoreRow.skill_score
-                )
-                : null;
-
-            const required =
-              Number(
-                roleSkill.required_level ??
-                0
-              );
-
-            const gap =
-              score === null
-                ? null
-                : Math.max(
-                  0,
-                  required -
-                  score
-                );
-
-            let status =
-              "Not Assessed";
-
-            if (
-              score !== null
-            ) {
-              if (
-                score >=
-                required
-              ) {
-                status =
-                  "Strong";
-              } else if (
-                gap !== null &&
-                gap >= 25
-              ) {
-                status =
-                  "Critical Gap";
-              } else if (
-                gap !== null &&
-                gap >= 10
-              ) {
-                status =
-                  "Needs Improvement";
-              } else {
-                status =
-                  "Good Progress";
-              }
-            }
-
-            return {
-              attempt_id:
-                assessment.id,
-
-              user_id:
-                user.id,
-
-              role_id:
-                assessment.role_id,
-
-              skill_id:
-                skillId,
-
-              skill_name:
-                scoreRow?.skill_name ??
-                skillNameMap.get(
-                  skillId
-                ) ??
-                "Unnamed skill",
-
-              skill_score:
-                score,
-
-              required_level:
-                required,
-
-              priority:
-                roleSkill.priority ??
-                null,
-
-              skill_gap:
-                gap,
-
-              status,
-            };
-          }
-        );
+  const learningScore = useMemo(() => {
+    if (!learning.length) {
+      return 0;
     }
-  }
 
-  // =========================================================
-  // 5. SKILL READINESS
-  // =========================================================
+    return Math.round(
+      learning.reduce(
+        (sum, item) =>
+          sum + Number(item.progress ?? 0),
+        0
+      ) / learning.length
+    );
+  }, [learning]);
 
-  const assessedSkillScores =
-    skillGaps
-      .filter(
+  /* ================================
+     PROJECT SCORE
+  ================================= */
+
+  const projectScore = useMemo(() => {
+    if (!projects.length) {
+      return 0;
+    }
+
+    return Math.round(
+      projects.reduce(
+        (sum, item) =>
+          sum + Number(item.progress ?? 0),
+        0
+      ) / projects.length
+    );
+  }, [projects]);
+
+  /* ================================
+     CERTIFICATION SCORE
+  ================================= */
+
+  const certificationScore = useMemo(() => {
+    if (!certifications.length) {
+      return 0;
+    }
+
+    return Math.round(
+      certifications.reduce(
+        (sum, item) =>
+          sum + Number(item.progress ?? 0),
+        0
+      ) / certifications.length
+    );
+  }, [certifications]);
+
+  /* ================================
+     ASSESSMENT SCORE
+  ================================= */
+
+  const assessmentScore = useMemo(() => {
+    if (!assessment) {
+      return 0;
+    }
+
+    /*
+     * assessment_attempts.score is stored
+     * as a percentage score.
+     */
+    return Math.round(
+      Number(assessment.score ?? 0)
+    );
+  }, [assessment]);
+
+  /* ================================
+     WEIGHTS
+  ================================= */
+
+  const WEIGHTS = {
+    skills: 30,
+    projects: 25,
+    learning: 15,
+    assessment: 20,
+    certifications: 10,
+  };
+
+  /* ================================
+     AVAILABLE AREAS
+  ================================= */
+
+  const readinessAreas = useMemo<ReadinessArea[]>(
+    () => [
+      {
+        key: "skills",
+        score: skillScore,
+        weight: WEIGHTS.skills,
+        available: assessedSkills.length > 0,
+      },
+      {
+        key: "projects",
+        score: projectScore,
+        weight: WEIGHTS.projects,
+        available: projects.length > 0,
+      },
+      {
+        key: "learning",
+        score: learningScore,
+        weight: WEIGHTS.learning,
+        available: learning.length > 0,
+      },
+      {
+        key: "assessment",
+        score: assessmentScore,
+        weight: WEIGHTS.assessment,
+        available: assessment !== null,
+      },
+      {
+        key: "certifications",
+        score: certificationScore,
+        weight: WEIGHTS.certifications,
+        available: certifications.length > 0,
+      },
+    ],
+    [
+      skillScore,
+      projectScore,
+      learningScore,
+      assessmentScore,
+      assessedSkills.length,
+      projects.length,
+      learning.length,
+      certifications.length,
+      assessment,
+    ]
+  );
+
+  /* ================================
+     READINESS
+  ================================= */
+
+  const readiness = useMemo(() => {
+    const availableAreas =
+      readinessAreas.filter(
+        (area) => area.available
+      );
+
+    if (!availableAreas.length) {
+      return 0;
+    }
+
+    /*
+     * Normalize against only the weights
+     * for areas that actually have evidence.
+     *
+     * Example:
+     * Assessment = 50%
+     *
+     * Instead of:
+     * 50 × 20% = 10%
+     *
+     * the displayed readiness is:
+     * 10 / 20 × 100 = 50%
+     *
+     * This prevents unstarted areas from
+     * artificially reducing readiness.
+     */
+    const weightedScore =
+      availableAreas.reduce(
+        (sum, area) =>
+          sum +
+          area.score *
+            (area.weight / 100),
+        0
+      );
+
+    const availableWeight =
+      availableAreas.reduce(
+        (sum, area) =>
+          sum + area.weight,
+        0
+      );
+
+    if (availableWeight === 0) {
+      return 0;
+    }
+
+    return Math.round(
+      (weightedScore / availableWeight) * 100
+    );
+  }, [readinessAreas]);
+
+  /* ================================
+     READINESS LABEL
+  ================================= */
+
+  const readinessLabel =
+    readiness >= 85
+      ? "Highly Ready"
+      : readiness >= 70
+        ? "Nearly Ready"
+        : readiness >= 50
+          ? "Developing"
+          : "Needs Improvement";
+
+  const readinessMessage =
+    readiness >= 85
+      ? "You have built a strong foundation across the major CareerPath readiness areas."
+      : readiness >= 70
+        ? "You are getting close to job readiness. Focus on your remaining skill and practical gaps."
+        : readiness >= 50
+          ? "You are making progress, but several areas still need development before you are strongly job-ready."
+          : "Continue building your core skills, practical experience and learning progress.";
+
+  /* ================================
+     BIGGEST GAP
+  ================================= */
+
+  const biggestGap = useMemo(() => {
+    if (!assessedSkills.length) {
+      return null;
+    }
+
+    const positiveGaps =
+      assessedSkills.filter(
         (skill) =>
-          skill.skill_score !==
-          null
-      )
-      .map(
-        (skill) =>
-          clamp(
-            Number(
-              skill.skill_score
-            )
-          )
+          Number(skill.skill_gap ?? 0) > 0
       );
 
-  const skillReadiness =
-    assessedSkillScores.length >
-      0
-      ? average(
-        assessedSkillScores
-      )
-      : assessment
-        ? assessmentScore
-        : 0;
-
-  // =========================================================
-  // 6. STRONGEST SKILL
-  // =========================================================
-
-  let strongestSkill =
-    "No skill data yet";
-
-  let strongestSkillScore =
-    0;
-
-  for (
-    const skill of skillGaps
-  ) {
-    if (
-      skill.skill_score ===
-      null
-    ) {
-      continue;
+    if (!positiveGaps.length) {
+      return null;
     }
 
-    const score =
-      clamp(
-        Number(
-          skill.skill_score
-        )
-      );
+    return [...positiveGaps].sort(
+      (a, b) =>
+        Number(b.skill_gap ?? 0) -
+        Number(a.skill_gap ?? 0)
+    )[0];
+  }, [assessedSkills]);
 
-    if (
-      score >
-      strongestSkillScore
-    ) {
-      strongestSkillScore =
-        score;
+  /* ================================
+     STRONGEST SKILL
+  ================================= */
 
-      strongestSkill =
-        skill.skill_name ||
-        "Unnamed skill";
-    }
-  }
-
-  // =========================================================
-  // 7. BIGGEST GAP
-  // =========================================================
-
-  let biggestGapSkill =
-    "No major gap identified";
-
-  let biggestGapValue =
-    0;
-
-  let biggestGapRequired =
-    0;
-
-  let biggestGapCurrent =
-    0;
-
-  for (
-    const skill of skillGaps
-  ) {
-    if (
-      skill.skill_gap ===
-      null
-    ) {
-      continue;
+  const strongestSkill = useMemo(() => {
+    if (!assessedSkills.length) {
+      return null;
     }
 
-    const gap =
-      Math.max(
-        0,
-        Number(
-          skill.skill_gap
-        )
-      );
+    return [...assessedSkills].sort(
+      (a, b) =>
+        Number(b.skill_score ?? 0) -
+        Number(a.skill_score ?? 0)
+    )[0];
+  }, [assessedSkills]);
+
+  /* ================================
+     NEXT ACTION
+  ================================= */
+
+  const nextAction = useMemo(() => {
+    if (!role) {
+      return {
+        title: "Select your career",
+        description:
+          "Choose a target career so CareerPath can personalize your journey.",
+        href: "/career",
+        button: "Select Career",
+      };
+    }
+
+    if (!assessment) {
+      return {
+        title: "Complete your assessment",
+        description:
+          "Take the 20-question assessment so CareerPath can identify your strengths and skill gaps.",
+        href: `/assessment?role=${role.id}`,
+        button: "Take Assessment",
+      };
+    }
 
     if (
-      gap >
-      biggestGapValue
+      biggestGap &&
+      Number(biggestGap.skill_gap ?? 0) > 0
     ) {
-      biggestGapValue =
-        gap;
-
-      biggestGapSkill =
-        skill.skill_name ||
-        "Unnamed skill";
-
-      biggestGapRequired =
-        Number(
-          skill.required_level ??
-          0
-        );
-
-      biggestGapCurrent =
-        Number(
-          skill.skill_score ??
-          0
-        );
+      return {
+        title: `Improve ${biggestGap.skill_name}`,
+        description:
+          "This is currently your largest assessed skill gap. Focus on the recommended learning resources before moving to the next major gap.",
+        href: "/learning",
+        button: "Go to Learning",
+      };
     }
-  }
 
-  // =========================================================
-  // 8. CRITICAL GAP
-  // =========================================================
+    if (
+      learning.length === 0 ||
+      learningScore < 100
+    ) {
+      return {
+        title: "Continue learning",
+        description:
+          "Continue the recommended learning resources and build stronger knowledge for your target role.",
+        href: "/learning",
+        button: "Continue Learning",
+      };
+    }
 
-  const criticalGap =
-    skillGaps.find(
-      (skill) => {
-        const gap =
-          Number(
-            skill.skill_gap ??
-            0
-          );
+    if (
+      projects.length === 0 ||
+      projectScore < 100
+    ) {
+      return {
+        title: "Build a practical project",
+        description:
+          "Apply your knowledge through a real project and strengthen your practical experience.",
+        href: "/projects",
+        button: "View Projects",
+      };
+    }
 
-        return (
-          gap >= 25 ||
-          skill.status ===
-          "Critical Gap"
-        );
-      }
-    );
+    if (
+      certifications.length === 0 ||
+      certificationScore < 100
+    ) {
+      return {
+        title: "Explore certifications",
+        description:
+          "Work toward a relevant credential if it supports your target career.",
+        href: "/certifications",
+        button: "View Certifications",
+      };
+    }
 
-  // =========================================================
-  // 9. LEARNING
-  // =========================================================
+    return {
+      title: "Review your job readiness",
+      description:
+        "Your major CareerPath areas are progressing. Continue improving your weakest skills and practical experience.",
+      href: "/progress",
+      button: "View Progress",
+    };
+  }, [
+    role,
+    assessment,
+    biggestGap,
+    learning.length,
+    learningScore,
+    projects.length,
+    projectScore,
+    certifications.length,
+    certificationScore,
+  ]);
 
-  const {
-    data: learningData,
-    error: learningError,
-  } =
-    await supabase
-      .from(
-        "user_learning_progress"
-      )
-      .select("*")
-      .eq(
-        "user_id",
-        user.id
-      );
+  /* ================================
+     LOADING
+  ================================= */
 
-  if (learningError) {
-    console.warn(
-      "LEARNING PROGRESS ERROR:",
-      learningError
-    );
-  }
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-[#faf9fc] p-8">
+        <div className="mx-auto max-w-7xl animate-pulse">
+          <div className="h-8 w-64 rounded bg-gray-200" />
 
-  const learningRows =
-    (learningData ??
-      []) as LearningProgress[];
+          <div className="mt-3 h-4 w-96 rounded bg-gray-200" />
 
-  const learningProgress =
-    learningRows.length >
-      0
-      ? average(
-        learningRows.map(
-          (
-            row
-          ) =>
-            getProgressValue(
-              row
-            )
-        )
-      )
-      : 0;
+          <div className="mt-8 h-72 rounded-2xl bg-gray-200" />
 
-  // =========================================================
-  // 10. PROJECTS
-  // =========================================================
-
-  const {
-    data: projectData,
-    error: projectError,
-  } =
-    await supabase
-      .from(
-        "user_project_progress"
-      )
-      .select("*")
-      .eq(
-        "user_id",
-        user.id
-      );
-
-  if (projectError) {
-    console.warn(
-      "PROJECT PROGRESS ERROR:",
-      projectError
+          <div className="mt-6 grid gap-5 md:grid-cols-4">
+            <div className="h-32 rounded-2xl bg-gray-200" />
+            <div className="h-32 rounded-2xl bg-gray-200" />
+            <div className="h-32 rounded-2xl bg-gray-200" />
+            <div className="h-32 rounded-2xl bg-gray-200" />
+          </div>
+        </div>
+      </main>
     );
   }
-
-  const projectRows =
-    (projectData ??
-      []) as ProjectProgress[];
-
-  const projectProgress =
-    projectRows.length >
-      0
-      ? average(
-        projectRows.map(
-          (
-            row
-          ) =>
-            getProgressValue(
-              row
-            )
-        )
-      )
-      : 0;
-
-  // =========================================================
-  // 11. CERTIFICATIONS
-  // =========================================================
-
-  const certificationProgress =
-    0;
-
-  // =========================================================
-  // 12. JOB READINESS
-  // =========================================================
-
-  const hasAssessment =
-    Boolean(
-      assessment
-    );
-
-  const hasAnyProgress =
-    skillGaps.length > 0 ||
-    learningRows.length > 0 ||
-    projectRows.length > 0;
-
-  let jobReadiness =
-    0;
-
-  if (
-    hasAssessment ||
-    hasAnyProgress
-  ) {
-    jobReadiness =
-      round(
-        skillReadiness *
-        0.30 +
-        projectProgress *
-        0.25 +
-        learningProgress *
-        0.15 +
-        assessmentScore *
-        0.20 +
-        certificationProgress *
-        0.10
-      );
-  }
-
-  // =========================================================
-  // 13. PREVENT FALSE JOB READY
-  // =========================================================
-
-  if (
-    criticalGap &&
-    Number(
-      criticalGap.skill_gap ??
-      0
-    ) >= 25
-  ) {
-    jobReadiness =
-      Math.min(
-        jobReadiness,
-        89
-      );
-  }
-
-  jobReadiness =
-    clamp(
-      jobReadiness
-    );
-
-  const readiness =
-    getReadinessStatus(
-      jobReadiness
-    );
-
-  // =========================================================
-  // 14. RECOMMENDATION
-  // =========================================================
-
-  let recommendationTitle =
-    "Choose your target career";
-
-  let recommendationText =
-    "Select a target career so CareerPath can create your personalized assessment and roadmap.";
-
-  let recommendationLink =
-    "/career-selection";
-
-  if (!targetRoleId) {
-    recommendationTitle =
-      "Choose your target career";
-
-    recommendationText =
-      "Select a target role before starting your assessment and personalized roadmap.";
-
-    recommendationLink =
-      "/career-selection";
-  } else if (!assessment) {
-    recommendationTitle =
-      "Complete your skill assessment";
-
-    recommendationText =
-      "Take the 20-question assessment to identify your current skills and generate your personalized roadmap.";
-
-    recommendationLink =
-      `/assessment?role=${targetRoleId}`;
-  } else if (criticalGap) {
-    const skillName =
-      criticalGap.skill_name ||
-      "your weakest skill";
-
-    recommendationTitle =
-      `Improve ${skillName}`;
-
-    recommendationText =
-      `Your current ${skillName} score is ${round(
-        Number(
-          criticalGap.skill_score ??
-          0
-        )
-      )}%, while the required level is ${round(
-        Number(
-          criticalGap.required_level ??
-          0
-        )
-      )}%. Follow the recommended learning path to close this gap.`;
-
-    recommendationLink =
-      "/learning";
-  } else if (
-    learningProgress < 60
-  ) {
-    recommendationTitle =
-      "Continue your learning path";
-
-    recommendationText =
-      "You have identified your skill gaps. Continue the recommended learning resources to strengthen your target-role skills.";
-
-    recommendationLink =
-      "/learning";
-  } else if (
-    projectProgress < 60
-  ) {
-    recommendationTitle =
-      "Build your next project";
-
-    recommendationText =
-      "Turn your learning into practical experience by completing a project aligned with your target career.";
-
-    recommendationLink =
-      "/projects";
-  } else if (
-    jobReadiness >= 90
-  ) {
-    recommendationTitle =
-      "Prepare for job applications";
-
-    recommendationText =
-      "Your readiness is strong. Focus on your portfolio, certifications, interview preparation, and relevant job opportunities.";
-
-    recommendationLink =
-      "/certifications";
-  } else {
-    recommendationTitle =
-      "Continue your roadmap";
-
-    recommendationText =
-      "Keep improving your skills, completing learning activities, and building practical projects.";
-
-    recommendationLink =
-      "/roadmap";
-  }
-
-  // =========================================================
-  // 15. ASSESSMENT LINK
-  // =========================================================
-
-  const assessmentLink =
-    targetRoleId
-      ? `/assessment?role=${targetRoleId}`
-      : "/career-selection";
-
-  // =========================================================
-  // 16. RING
-  // =========================================================
-
-  const radius = 54;
-
-  const circumference =
-    2 * Math.PI * radius;
-
-  const dashOffset =
-    circumference -
-    (jobReadiness /
-      100) *
-    circumference;
-
-  // =========================================================
-  // 17. RENDER
-  // =========================================================
 
   return (
-    <div className="min-h-screen bg-[#f8f9fc]">
+    <main className="min-h-screen bg-[#faf9fc] px-6 py-8 md:px-10">
+      <div className="mx-auto max-w-7xl">
 
-      {/* HEADER */}
+        {/* HEADER */}
 
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100">
+            <Target className="h-6 w-6 text-indigo-600" />
+          </div>
 
           <div>
-            <p className="text-sm font-medium text-indigo-600">
-              CareerPath
-            </p>
-
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900">
+            <h1 className="text-3xl font-bold text-gray-900">
               Job Readiness
             </h1>
 
             <p className="mt-1 text-sm text-gray-500">
-              Understand how prepared you are for your target career.
+              See how prepared you are for your target career.
             </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-
-            <Link
-              href="/dashboard"
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-            >
-              Dashboard
-            </Link>
-
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-              {initials}
-            </div>
-
           </div>
         </div>
-      </header>
 
-      {/* MAIN */}
+        {/* TARGET ROLE */}
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+        <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-gray-500">
+            Target Career
+          </p>
 
-        {/* TARGET CAREER */}
+          <h2 className="mt-1 text-xl font-bold text-gray-900">
+            {role?.name ?? "Career role not selected"}
+          </h2>
+        </div>
 
-        <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        {/* READINESS HERO */}
 
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
+        <section className="mb-8 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="p-7">
 
-            <div>
+            <div className="flex flex-col gap-8 md:flex-row md:items-center md:justify-between">
 
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                Your target career
-              </p>
+              <div className="max-w-xl">
+                <p className="text-sm font-semibold text-indigo-600">
+                  Overall Job Readiness
+                </p>
 
-              <h2 className="mt-2 text-2xl font-bold text-gray-900">
-                {targetRole}
-              </h2>
+                <h2 className="mt-2 text-5xl font-bold text-gray-900">
+                  {readiness}%
+                </h2>
 
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500">
-                Your readiness score combines your assessment,
-                current skills, learning progress, practical projects,
-                and certification progress.
-              </p>
+                <div className="mt-3 inline-flex rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-indigo-700">
+                  {readinessLabel}
+                </div>
 
-            </div>
+                <p className="mt-4 text-sm leading-6 text-gray-600">
+                  {readinessMessage}
+                </p>
 
-            <Link
-              href="/roadmap"
-              className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-            >
-              View My Roadmap →
-            </Link>
+                <p className="mt-3 text-xs text-gray-400">
+                  Based on {readinessAreas.filter(
+                    (area) => area.available
+                  ).length} of 5 readiness areas currently started.
+                </p>
+              </div>
 
-          </div>
-        </section>
-
-        {/* READINESS */}
-
-        <section className="mb-6 grid gap-6 lg:grid-cols-3">
-
-          {/* SCORE */}
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-
-            <p className="text-sm font-semibold text-gray-500">
-              Overall Job Readiness
-            </p>
-
-            <div className="mt-6 flex justify-center">
-
-              <div className="relative h-40 w-40">
-
-                <svg
-                  className="h-40 w-40 -rotate-90"
-                  viewBox="0 0 120 120"
+              <div className="flex h-40 w-40 shrink-0 items-center justify-center">
+                <div
+                  className="flex h-40 w-40 items-center justify-center rounded-full"
+                  style={{
+                    background: `conic-gradient(#4f46e5 ${readiness}%, #eef2ff 0)`,
+                  }}
                 >
-
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r={radius}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    className="text-gray-100"
-                  />
-
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r={radius}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    strokeLinecap="round"
-                    className={
-                      readiness.ringClass
-                    }
-                    strokeDasharray={
-                      circumference
-                    }
-                    strokeDashoffset={
-                      dashOffset
-                    }
-                  />
-
-                </svg>
-
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-
-                  <span className="text-4xl font-bold text-gray-900">
-                    {jobReadiness}%
-                  </span>
-
-                  <span
-                    className={`mt-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${readiness.className}`}
-                  >
-                    {readiness.label}
-                  </span>
-
+                  <div className="flex h-32 w-32 items-center justify-center rounded-full bg-white">
+                    <span className="text-3xl font-bold text-gray-900">
+                      {readiness}%
+                    </span>
+                  </div>
                 </div>
-
               </div>
             </div>
 
-            <p className="mt-5 text-center text-sm leading-6 text-gray-500">
-              {readiness.description}
-            </p>
-
-            <Link
-              href={assessmentLink}
-              className="mt-6 flex w-full items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-            >
-              {assessment
-                ? "Retake Assessment →"
-                : "Start Assessment →"}
-            </Link>
-
-          </div>
-
-          {/* BREAKDOWN */}
-
-          <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm lg:col-span-2">
-
-            <h2 className="text-lg font-bold text-gray-900">
-              Readiness Breakdown
-            </h2>
-
-            <p className="mt-1 text-sm text-gray-500">
-              See how each area contributes to your career readiness.
-            </p>
-
-            <div className="mt-7 space-y-6">
-
-              {/* SKILLS */}
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      Skills
-                    </p>
-
-                    <p className="text-xs text-gray-400">
-                      Current skill performance
-                    </p>
-                  </div>
-
-                  <span className="text-sm font-bold text-gray-900">
-                    {skillReadiness}%
-                  </span>
-
-                </div>
-
-                <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-indigo-600"
-                    style={{
-                      width: `${skillReadiness}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* PROJECTS */}
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      Practical Projects
-                    </p>
-
-                    <p className="text-xs text-gray-400">
-                      Hands-on project experience
-                    </p>
-                  </div>
-
-                  <span className="text-sm font-bold text-gray-900">
-                    {projectProgress}%
-                  </span>
-
-                </div>
-
-                <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-emerald-500"
-                    style={{
-                      width: `${projectProgress}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* LEARNING */}
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      Learning
-                    </p>
-
-                    <p className="text-xs text-gray-400">
-                      Recommended learning completion
-                    </p>
-                  </div>
-
-                  <span className="text-sm font-bold text-gray-900">
-                    {learningProgress}%
-                  </span>
-
-                </div>
-
-                <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-blue-500"
-                    style={{
-                      width: `${learningProgress}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* ASSESSMENT */}
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      Assessment
-                    </p>
-
-                    <p className="text-xs text-gray-400">
-                      Latest 20-question assessment
-                    </p>
-                  </div>
-
-                  <span className="text-sm font-bold text-gray-900">
-                    {assessmentScore}%
-                  </span>
-
-                </div>
-
-                <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-violet-500"
-                    style={{
-                      width: `${assessmentScore}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* CERTIFICATIONS */}
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">
-                      Certifications
-                    </p>
-
-                    <p className="text-xs text-gray-400">
-                      Certification progress
-                    </p>
-                  </div>
-
-                  <span className="text-sm font-bold text-gray-900">
-                    {certificationProgress}%
-                  </span>
-
-                </div>
-
-                <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-amber-500"
-                    style={{
-                      width: `${certificationProgress}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
+            <div className="mt-7 h-3 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-indigo-600 transition-all duration-700"
+                style={{
+                  width: `${readiness}%`,
+                }}
+              />
             </div>
           </div>
-        </section>
-
-        {/* STRENGTH + GAP */}
-
-        <section className="mb-6 grid gap-6 md:grid-cols-2">
-
-          <div className="rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
-
-            <div className="flex items-start gap-4">
-
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xl text-emerald-700">
-                ✓
-              </div>
-
-              <div>
-
-                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
-                  Strongest Area
-                </p>
-
-                <h3 className="mt-1 text-xl font-bold text-gray-900">
-                  {strongestSkill}
-                </h3>
-
-                <p className="mt-1 text-sm text-gray-500">
-                  Current score:{" "}
-                  {strongestSkillScore}%
-                </p>
-
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
-
-            <div className="flex items-start gap-4">
-
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-xl text-amber-700">
-                !
-              </div>
-
-              <div>
-
-                <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">
-                  Biggest Skill Gap
-                </p>
-
-                <h3 className="mt-1 text-xl font-bold text-gray-900">
-                  {biggestGapSkill}
-                </h3>
-
-                <p className="mt-1 text-sm text-gray-500">
-                  Current{" "}
-                  {round(
-                    biggestGapCurrent
-                  )}
-                  % → Required{" "}
-                  {round(
-                    biggestGapRequired
-                  )}
-                  %
-                </p>
-
-                <p className="mt-1 text-sm font-semibold text-amber-700">
-                  Gap:{" "}
-                  {round(
-                    biggestGapValue
-                  )}
-                  %
-                </p>
-
-              </div>
-            </div>
-          </div>
-
         </section>
 
         {/* NEXT ACTION */}
 
-        <section className="mb-6 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-6">
-
+        <section className="mb-8 rounded-2xl border border-indigo-200 bg-indigo-50 p-7">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
 
-            <div className="flex items-start gap-4">
+            <div>
+              <p className="text-sm font-semibold text-indigo-700">
+                Recommended Next Step
+              </p>
 
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-lg text-indigo-600 shadow-sm">
-                →
-              </div>
+              <h2 className="mt-2 text-2xl font-bold text-gray-900">
+                {nextAction.title}
+              </h2>
 
-              <div>
-
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
-                  Recommended Next Action
-                </p>
-
-                <h3 className="mt-1 text-xl font-bold text-gray-900">
-                  {recommendationTitle}
-                </h3>
-
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-600">
-                  {recommendationText}
-                </p>
-
-              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
+                {nextAction.description}
+              </p>
             </div>
 
-            <Link
-              href={recommendationLink}
-              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            <a
+              href={nextAction.href}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
             >
-              Continue →
-            </Link>
-
+              {nextAction.button}
+              <ArrowRight className="h-4 w-4" />
+            </a>
           </div>
         </section>
 
-        {/* LEVELS */}
+        {/* READINESS BREAKDOWN */}
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <section className="mb-8">
+          <div className="mb-5">
+            <h2 className="text-xl font-bold text-gray-900">
+              Readiness Breakdown
+            </h2>
 
-          <h2 className="text-lg font-bold text-gray-900">
-            What does this score mean?
-          </h2>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-
-            <div className="rounded-xl bg-red-50 p-4">
-              <div className="text-lg font-bold text-red-700">
-                0–39%
-              </div>
-
-              <p className="mt-1 text-sm text-gray-600">
-                Not Ready Yet
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-orange-50 p-4">
-              <div className="text-lg font-bold text-orange-700">
-                40–59%
-              </div>
-
-              <p className="mt-1 text-sm text-gray-600">
-                Building Foundations
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-amber-50 p-4">
-              <div className="text-lg font-bold text-amber-700">
-                60–74%
-              </div>
-
-              <p className="mt-1 text-sm text-gray-600">
-                Developing
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-blue-50 p-4">
-              <div className="text-lg font-bold text-blue-700">
-                75–89%
-              </div>
-
-              <p className="mt-1 text-sm text-gray-600">
-                Nearly Job Ready
-              </p>
-            </div>
-
-            <div className="rounded-xl bg-emerald-50 p-4">
-              <div className="text-lg font-bold text-emerald-700">
-                90–100%
-              </div>
-
-              <p className="mt-1 text-sm text-gray-600">
-                Job Ready
-              </p>
-            </div>
-
+            <p className="mt-1 text-sm text-gray-500">
+              Your readiness combines knowledge, skills, learning,
+              practical projects and certifications.
+            </p>
           </div>
 
-          <p className="mt-5 text-sm leading-6 text-gray-500">
-            CareerPath uses this score as a
-            progress indicator based on your
-            current assessment, skills, learning,
-            projects, and certification progress.
-            It is not a guarantee of employment
-            or hiring success.
-          </p>
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-5">
 
+            <ReadinessCard
+              title="Skills"
+              score={skillScore}
+              weight="30%"
+              icon={
+                <Target className="h-5 w-5 text-indigo-600" />
+              }
+              bg="bg-indigo-100"
+              available={assessedSkills.length > 0}
+            />
+
+            <ReadinessCard
+              title="Projects"
+              score={projectScore}
+              weight="25%"
+              icon={
+                <FolderKanban className="h-5 w-5 text-purple-600" />
+              }
+              bg="bg-purple-100"
+              available={projects.length > 0}
+            />
+
+            <ReadinessCard
+              title="Learning"
+              score={learningScore}
+              weight="15%"
+              icon={
+                <BookOpen className="h-5 w-5 text-blue-600" />
+              }
+              bg="bg-blue-100"
+              available={learning.length > 0}
+            />
+
+            <ReadinessCard
+              title="Assessment"
+              score={assessmentScore}
+              weight="20%"
+              icon={
+                <ClipboardCheck className="h-5 w-5 text-green-600" />
+              }
+              bg="bg-green-100"
+              available={assessment !== null}
+            />
+
+            <ReadinessCard
+              title="Certifications"
+              score={certificationScore}
+              weight="10%"
+              icon={
+                <GraduationCap className="h-5 w-5 text-amber-600" />
+              }
+              bg="bg-amber-100"
+              available={certifications.length > 0}
+            />
+          </div>
         </section>
 
-        {/* NAVIGATION */}
+        {/* SKILL INSIGHTS */}
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <div className="mb-8 grid gap-5 md:grid-cols-2">
 
-          <Link
-            href="/progress"
-            className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-          >
-            ← Back to Progress
-          </Link>
+          {strongestSkill && (
+            <div className="rounded-2xl border border-green-200 bg-green-50 p-6">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-green-600" />
 
-          <Link
-            href="/dashboard"
-            className="rounded-xl bg-gray-900 px-5 py-3 text-center text-sm font-semibold text-white transition hover:bg-gray-800"
-          >
-            Go to Dashboard →
-          </Link>
+                <span className="text-sm font-semibold text-green-700">
+                  Strongest Skill
+                </span>
+              </div>
 
+              <h3 className="mt-3 text-2xl font-bold text-gray-900">
+                {strongestSkill.skill_name}
+              </h3>
+
+              <p className="mt-2 text-sm text-gray-600">
+                Current score:{" "}
+                <strong>
+                  {Math.round(
+                    Number(
+                      strongestSkill.skill_score ?? 0
+                    )
+                  )}
+                  %
+                </strong>
+              </p>
+            </div>
+          )}
+
+          {biggestGap && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+
+                <span className="text-sm font-semibold text-amber-700">
+                  Biggest Skill Gap
+                </span>
+              </div>
+
+              <h3 className="mt-3 text-2xl font-bold text-gray-900">
+                {biggestGap.skill_name}
+              </h3>
+
+              <p className="mt-2 text-sm text-gray-600">
+                Skill gap:{" "}
+                <strong>
+                  {Math.round(
+                    Number(
+                      biggestGap.skill_gap ?? 0
+                    )
+                  )}
+                </strong>
+                %
+              </p>
+            </div>
+          )}
         </div>
 
-      </main>
+        {/* CAREERPATH STATUS */}
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-bold text-gray-900">
+            CareerPath Status
+          </h2>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Your current position in the CareerPath journey.
+          </p>
+
+          <div className="mt-5 space-y-4">
+
+            <StatusRow
+              label="Career selected"
+              status={role ? "completed" : "not_started"}
+            />
+
+            <StatusRow
+              label="Assessment"
+              status={
+                assessment
+                  ? "completed"
+                  : "not_started"
+              }
+            />
+
+            <StatusRow
+              label="Skills assessment"
+              status={
+                assessedSkills.length > 0
+                  ? "completed"
+                  : "not_started"
+              }
+            />
+
+            <StatusRow
+              label="Learning"
+              status={getProgressStatus(learning)}
+            />
+
+            <StatusRow
+              label="Project"
+              status={getProgressStatus(projects)}
+            />
+
+            <StatusRow
+              label="Certification"
+              status={getProgressStatus(certifications)}
+            />
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+/* =================================
+   READINESS CARD
+================================= */
+
+function ReadinessCard({
+  title,
+  score,
+  weight,
+  icon,
+  bg,
+  available,
+}: {
+  title: string;
+  score: number;
+  weight: string;
+  icon: React.ReactNode;
+  bg: string;
+  available: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+
+      <div className="flex items-center justify-between gap-3">
+
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-xl ${bg}`}
+        >
+          {icon}
+        </div>
+
+        <span className="text-xs font-semibold text-gray-400">
+          Weight {weight}
+        </span>
+      </div>
+
+      <p className="mt-5 text-sm font-medium text-gray-500">
+        {title}
+      </p>
+
+      <p className="mt-1 text-3xl font-bold text-gray-900">
+        {available ? `${score}%` : "—"}
+      </p>
+
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
+
+        <div
+          className="h-full rounded-full bg-indigo-600 transition-all"
+          style={{
+            width: available
+              ? `${Math.min(score, 100)}%`
+              : "0%",
+          }}
+        />
+      </div>
+
+      {!available && (
+        <p className="mt-2 text-xs text-gray-400">
+          Not started
+        </p>
+      )}
+
+      {available && score >= 100 && (
+        <p className="mt-2 flex items-center gap-1 text-xs font-medium text-green-600">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Complete
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* =================================
+   PROGRESS STATUS
+================================= */
+
+function getProgressStatus(
+  items: ProgressItem[]
+): "not_started" | "in_progress" | "completed" {
+  if (!items.length) {
+    return "not_started";
+  }
+
+  const allCompleted =
+    items.every(
+      (item) =>
+        item.completed ||
+        Number(item.progress ?? 0) >= 100
+    );
+
+  if (allCompleted) {
+    return "completed";
+  }
+
+  return "in_progress";
+}
+
+/* =================================
+   STATUS ROW
+================================= */
+
+function StatusRow({
+  label,
+  status,
+}: {
+  label: string;
+  status:
+    | "not_started"
+    | "in_progress"
+    | "completed";
+}) {
+  if (status === "completed") {
+    return (
+      <div className="flex items-center justify-between rounded-xl bg-green-50 px-4 py-3">
+        <span className="text-sm font-medium text-gray-700">
+          {label}
+        </span>
+
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-green-600">
+          <CheckCircle2 className="h-4 w-4" />
+          Completed
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "in_progress") {
+    return (
+      <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3">
+        <span className="text-sm font-medium text-gray-700">
+          {label}
+        </span>
+
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
+          <Circle className="h-4 w-4 fill-current" />
+          In Progress
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+      <span className="text-sm font-medium text-gray-700">
+        {label}
+      </span>
+
+      <span className="text-sm font-medium text-gray-400">
+        Not Started
+      </span>
     </div>
   );
 }

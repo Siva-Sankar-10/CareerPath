@@ -97,7 +97,7 @@ export default function CareerPage() {
         );
       }
 
-      // 4. Store the selected career locally for the next page
+      // 4. Store the selected career locally
       sessionStorage.setItem(
         "selected_career",
         selectedRole.name
@@ -108,10 +108,10 @@ export default function CareerPage() {
         selectedRole.id
       );
 
-      // 5. Continue to assessment
+      // 5. Continue to assessment using the ROLE ID
       router.push(
         `/assessment?role=${encodeURIComponent(
-          selectedRole.name
+          selectedRole.id
         )}`
       );
     } catch (err) {

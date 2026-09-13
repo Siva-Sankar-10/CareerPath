@@ -10,6 +10,7 @@ const navigation = [
   { name: "Skills", href: "/skills" },
   {name: "Job Readiness", href: "/job-readiness"},
   { name: "Learning", href: "/learning" },
+  {name : "internships", href: "/internships"},
   { name: "Projects", href: "/projects" },
   { name: "Certifications", href: "/certifications" },
   { name: "Progress", href: "/progress" },
